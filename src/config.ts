@@ -17,6 +17,9 @@ export interface AppConfig {
   cam2CgiPassword?: string | undefined;
   mediaMtxRtspBaseUrl?: string | undefined;
   mediaMtxRtmpBaseUrl?: string | undefined;
+  pigatewayUrl: string;
+  presetsFilePath?: string | undefined;
+  thumbnailsDir?: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -24,12 +27,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = Number.parseInt(env["PICAM_PORT"] ?? "3300", 10);
   const host = env["PICAM_HOST"] ?? "0.0.0.0";
   const nearLimitM = Number.parseFloat(env["PICAM_NEAR_LIMIT_M"] ?? "5.0");
+  const pigatewayUrl = env["PIGATEWAY_URL"]?.trim() || "http://127.0.0.1:3100";
+  const presetsFilePath = env["PICAM_PRESETS_FILE"]?.trim() || undefined;
+  const thumbnailsDir = env["PICAM_THUMBNAILS_DIR"]?.trim() || undefined;
 
   return {
     host,
     port: Number.isNaN(port) ? 3300 : port,
     mode,
     nearLimitM: Number.isNaN(nearLimitM) ? 5.0 : nearLimitM,
+    pigatewayUrl,
+    presetsFilePath,
+    thumbnailsDir,
 
     cam1Name: env["PICAM_CAM1_NAME"] ?? "Camera 1",
     cam1Host: env["PICAM_CAM1_HOST"] ?? "",

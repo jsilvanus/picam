@@ -37,7 +37,14 @@ export function buildApp(config: AppConfig): BuildAppResult {
     cam2CgiUser: config.cam2CgiUser,
     cam2CgiPassword: config.cam2CgiPassword,
     mediaMtxRtspBaseUrl: config.mediaMtxRtspBaseUrl,
-    mediaMtxRtmpBaseUrl: config.mediaMtxRtmpBaseUrl
+    mediaMtxRtmpBaseUrl: config.mediaMtxRtmpBaseUrl,
+    pigatewayUrl: config.pigatewayUrl,
+    presetsFilePath: config.presetsFilePath,
+    thumbnailsDir: config.thumbnailsDir
+  });
+
+  app.addHook("onReady", async () => {
+    await cameraService.init();
   });
 
   registerCameraRoutes(app, cameraService, eventBroker);

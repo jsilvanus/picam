@@ -2,6 +2,8 @@ import type { FastifyBaseLogger } from "fastify";
 import type { CameraEventBroker } from "./events.js";
 import {
   type CameraAdapter,
+  type CameraPreset,
+  type CameraPresetCoordinates,
   type CameraSnapshot,
   type FocusMode,
   type FreedState,
@@ -10,6 +12,13 @@ import {
   UdpViscaCameraAdapter
 } from "./camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
+import { PresetStore } from "./preset-store.js";
+import {
+  CameraSettlingTracker,
+  type FreedTelemetry,
+  type SettlingEvent,
+  type SettlingTrackerOptions
+} from "./settling-tracker.js";
 
 export interface CameraServiceOptions {
   mode: "simulation" | "production";
@@ -31,6 +40,12 @@ export interface CameraServiceOptions {
   cam2CgiPassword?: string | undefined;
   mediaMtxRtspBaseUrl?: string | undefined;
   mediaMtxRtmpBaseUrl?: string | undefined;
+  pigatewayUrl?: string | undefined;
+  presetsFilePath?: string | undefined;
+  thumbnailsDir?: string | undefined;
+  fetchFn?: typeof fetch | undefined;
+  presetStore?: PresetStore | undefined;
+  settlingTrackerOptions?: SettlingTrackerOptions | undefined;
 }
 
 function basicAuth(user?: string, password?: string): { user: string; password: string } | undefined {
@@ -41,10 +56,23 @@ export class CameraService {
   private readonly cameras = new Map<string, CameraAdapter>();
   private readonly eventBroker?: CameraEventBroker | undefined;
   private readonly logger?: FastifyBaseLogger | undefined;
+  private readonly presetStore: PresetStore;
+  private readonly settlingTracker: CameraSettlingTracker;
+  private readonly pigatewayUrl: string;
+  private readonly fetchFn: typeof fetch;
 
   constructor(options: CameraServiceOptions) {
     this.eventBroker = options.eventBroker;
     this.logger = options.logger;
+    this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3100").replace(/\/+$/, "");
+    this.fetchFn = options.fetchFn ?? globalThis.fetch;
+    this.presetStore =
+      options.presetStore ??
+      new PresetStore({
+        filePath: options.presetsFilePath,
+        thumbnailsDir: options.thumbnailsDir
+      });
+    this.settlingTracker = new CameraSettlingTracker(options.settlingTrackerOptions);
 
     const cam1Label = options.cam1Name?.trim() || "Camera 1";
     const cam2Label = options.cam2Name?.trim() || "Camera 2";
@@ -89,6 +117,21 @@ export class CameraService {
       );
     } else {
       this.cameras.set("cam2", new SimulatedCameraAdapter("cam2", cam2Label));
+    }
+  }
+
+  async init(): Promise<void> {
+    const defaultPresets: Record<string, CameraPreset[]> = {};
+    for (const [id, cam] of this.cameras.entries()) {
+      defaultPresets[id] = cam.getSnapshot().presets;
+    }
+    await this.presetStore.init(defaultPresets);
+
+    for (const [id, cam] of this.cameras.entries()) {
+      const presets = this.presetStore.getPresets(id);
+      if (presets.length > 0) {
+        cam.initPresets?.(presets);
+      }
     }
   }
 
@@ -153,8 +196,10 @@ export class CameraService {
       throw new Error(`Camera '${id}' not found`);
     }
 
+    this.settlingTracker.setTargetPreset(id, presetId);
     await cam.recallPreset(presetId);
     const snapshot = cam.getSnapshot();
+    const preset = this.presetStore.getPreset(id, presetId);
 
     this.eventBroker?.emit({
       type: "camera",
@@ -162,6 +207,9 @@ export class CameraService {
         id,
         action: "preset:recall",
         presetId,
+        targetPresetId: presetId,
+        name: preset?.name,
+        coordinates: preset?.coordinates,
         position: snapshot.position
       }
     });
@@ -169,13 +217,61 @@ export class CameraService {
     return snapshot;
   }
 
-  async savePreset(id: string, presetId: number, name?: string): Promise<CameraSnapshot> {
+  async savePreset(
+    id: string,
+    presetId: number,
+    name?: string,
+    coordinates?: CameraPresetCoordinates,
+    thumbnail?: string
+  ): Promise<CameraSnapshot> {
     const cam = this.cameras.get(id);
     if (!cam) {
       throw new Error(`Camera '${id}' not found`);
     }
 
-    await cam.savePreset(presetId, name);
+    let resolvedCoordinates = coordinates;
+    if (!resolvedCoordinates) {
+      try {
+        const res = await this.fetchFn(`${this.pigatewayUrl}/api/v1/cameras/${id}/freed`);
+        if (res.ok) {
+          const body = (await res.json()) as any;
+          if (body?.telemetry) {
+            resolvedCoordinates = {
+              pan: body.telemetry.pan,
+              tilt: body.telemetry.tilt,
+              roll: body.telemetry.roll,
+              zoom: body.telemetry.zoom,
+              focus: body.telemetry.focus
+            };
+          }
+        }
+      } catch (err) {
+        this.logger?.debug({ err, id }, "Could not fetch FreeD telemetry from pigateway");
+      }
+    }
+
+    if (!resolvedCoordinates) {
+      const pos = cam.getSnapshot().position;
+      resolvedCoordinates = {
+        pan: pos.pan,
+        tilt: pos.tilt,
+        zoom: pos.zoom
+      };
+    }
+
+    await cam.savePreset(presetId, name, resolvedCoordinates);
+    if (thumbnail) {
+      await cam.savePresetThumbnail(presetId, thumbnail);
+    }
+
+    const saved = await this.presetStore.savePreset(
+      id,
+      presetId,
+      name,
+      resolvedCoordinates,
+      thumbnail
+    );
+
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -184,6 +280,9 @@ export class CameraService {
         id,
         action: "preset:save",
         presetId,
+        name: saved.name,
+        thumbnail: saved.thumbnail,
+        coordinates: saved.coordinates,
         position: snapshot.position
       }
     });
@@ -197,7 +296,8 @@ export class CameraService {
       throw new Error(`Camera '${id}' not found`);
     }
 
-    await cam.savePresetThumbnail(presetId, thumbnail);
+    const saved = await this.presetStore.saveThumbnail(id, presetId, thumbnail);
+    await cam.savePresetThumbnail(presetId, saved.thumbnail ?? thumbnail);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -206,6 +306,8 @@ export class CameraService {
         id,
         action: "preset:thumbnail",
         presetId,
+        name: saved.name,
+        thumbnail: saved.thumbnail,
         position: snapshot.position
       }
     });
@@ -220,6 +322,7 @@ export class CameraService {
     }
 
     await cam.resetPreset(presetId);
+    await this.presetStore.deletePreset(id, presetId);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -233,6 +336,47 @@ export class CameraService {
     });
 
     return snapshot;
+  }
+
+  processFreedTelemetry(telemetry: FreedTelemetry): SettlingEvent | null {
+    const cameraId =
+      telemetry.camId === 101 || telemetry.camId === 1
+        ? "cam1"
+        : telemetry.camId === 102 || telemetry.camId === 2
+          ? "cam2"
+          : `cam${telemetry.camId}`;
+
+    const presets = this.presetStore.getPresets(cameraId);
+    const event = this.settlingTracker.ingestTelemetry(cameraId, telemetry, presets);
+    if (event) {
+      this.eventBroker?.emit({
+        type: "camera",
+        data: {
+          id: cameraId,
+          action: event.action,
+          presetId: event.presetId,
+          name: event.name,
+          position: event.position,
+          coordinates: event.coordinates
+        }
+      });
+    }
+    return event;
+  }
+
+  async getThumbnailFile(
+    cameraId: string,
+    presetId: number
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    return this.presetStore.getThumbnailFile(cameraId, presetId);
+  }
+
+  getPresetStore(): PresetStore {
+    return this.presetStore;
+  }
+
+  getSettlingTracker(): CameraSettlingTracker {
+    return this.settlingTracker;
   }
 
   async setSmartFrame(id: string, mode: SmartFrameMode): Promise<CameraSnapshot> {

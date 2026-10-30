@@ -193,7 +193,7 @@ export function registerCameraRoutes(
 
   app.post<{
     Params: { cameraId: string; presetId: string };
-    Body: { name?: unknown };
+    Body: { name?: unknown; thumbnail?: unknown; coordinates?: unknown };
   }>("/api/v1/cameras/:cameraId/presets/:presetId/save", async (request, reply) => {
     const camera = cameraService.get(request.params.cameraId);
     if (!camera) {
@@ -210,13 +210,75 @@ export function registerCameraRoutes(
     }
 
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : undefined;
+    const thumbnail = typeof request.body?.thumbnail === "string" ? request.body.thumbnail.trim() : undefined;
+    const coordinates =
+      request.body?.coordinates && typeof request.body.coordinates === "object"
+        ? (request.body.coordinates as any)
+        : undefined;
 
-    await cameraService.savePreset(request.params.cameraId, presetId, name);
+    await cameraService.savePreset(request.params.cameraId, presetId, name, coordinates, thumbnail);
 
     return reply.code(200).send({
       cameraId: request.params.cameraId,
       success: true,
       action: `preset:save:${presetId}`
+    });
+  });
+
+  app.get<{ Params: { cameraId: string; presetId: string } }>(
+    "/api/v1/cameras/:cameraId/presets/:presetId/thumbnail",
+    async (request, reply) => {
+      const camera = cameraService.get(request.params.cameraId);
+      if (!camera) {
+        return reply.code(404).send({
+          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+        });
+      }
+
+      const presetId = Number(request.params.presetId);
+      const file = await cameraService.getThumbnailFile(request.params.cameraId, presetId);
+      if (!file) {
+        return reply.code(404).send({
+          error: { code: "THUMBNAIL_NOT_FOUND", message: `Thumbnail for preset ${presetId} not found` }
+        });
+      }
+
+      return reply.type(file.contentType).send(file.buffer);
+    }
+  );
+
+  app.post<{
+    Params: { cameraId: string };
+    Body: { pan?: unknown; tilt?: unknown; roll?: unknown; zoom?: unknown; focus?: unknown };
+  }>("/api/v1/cameras/:cameraId/telemetry", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const pan = Number(request.body?.pan ?? 0);
+    const tilt = Number(request.body?.tilt ?? 0);
+    const zoom = Number(request.body?.zoom ?? 0);
+    const focus = request.body?.focus !== undefined ? Number(request.body.focus) : undefined;
+    const roll = request.body?.roll !== undefined ? Number(request.body.roll) : undefined;
+
+    const match = request.params.cameraId.match(/\d+$/);
+    const camId = match ? Number.parseInt(match[0]!, 10) : 1;
+
+    const event = cameraService.processFreedTelemetry({
+      camId,
+      pan,
+      tilt,
+      roll,
+      zoom,
+      focus
+    });
+
+    return reply.code(200).send({
+      success: true,
+      event: event ?? null
     });
   });
 

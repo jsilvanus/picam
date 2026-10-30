@@ -3,13 +3,24 @@ import { EventEmitter } from "node:events";
 export interface CameraEventPayload {
   id: string;
   action: string;
-  streaming?: boolean;
-  presetId?: number;
-  thumbnail?: string;
-  smartFrame?: string;
-  privacyBlur?: boolean;
-  focusMode?: string;
-  position?: { pan: number; tilt: number; zoom: number };
+  streaming?: boolean | undefined;
+  presetId?: number | undefined;
+  targetPresetId?: number | undefined;
+  name?: string | undefined;
+  thumbnail?: string | undefined;
+  smartFrame?: string | undefined;
+  privacyBlur?: boolean | undefined;
+  focusMode?: string | undefined;
+  position?: { pan: number; tilt: number; zoom: number } | undefined;
+  coordinates?:
+    | {
+        pan: number;
+        tilt: number;
+        roll?: number | undefined;
+        zoom: number;
+        focus?: number | undefined;
+      }
+    | undefined;
 }
 
 export type CameraEvent =

@@ -23,10 +23,20 @@ import {
   type ZoomAction
 } from "./visca-protocol.js";
 
+export interface CameraPresetCoordinates {
+  pan: number;
+  tilt: number;
+  roll?: number | undefined;
+  zoom: number;
+  focus?: number | undefined;
+}
+
 export interface CameraPreset {
   id: number;
-  name?: string;
-  thumbnail?: string;
+  name?: string | undefined;
+  thumbnail?: string | undefined;
+  coordinates?: CameraPresetCoordinates | undefined;
+  updatedAt?: string | undefined;
 }
 
 export interface CameraPosition {
@@ -76,8 +86,9 @@ export interface CameraAdapter {
   move(direction: PanTiltDirection, panSpeed?: number, tiltSpeed?: number): Promise<void>;
   zoom(action: ZoomAction, speed?: number): Promise<void>;
   recallPreset(presetId: number): Promise<void>;
-  savePreset(presetId: number, name?: string): Promise<void>;
+  savePreset(presetId: number, name?: string, coordinates?: CameraPresetCoordinates): Promise<void>;
   savePresetThumbnail(presetId: number, thumbnail: string): Promise<void>;
+  initPresets?(presets: CameraPreset[]): void;
   resetPreset(presetId: number): Promise<void>;
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
   /** VISCA CAM_Power: true wakes the camera, false puts it in standby. */
@@ -104,13 +115,22 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   private privacyBlur = false;
   private focusMode: FocusMode = "auto";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
-  private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>([
-    [1, { position: { pan: 100, tilt: 50, zoom: 10 }, name: "Pulpit" }],
-    [2, { position: { pan: -200, tilt: 30, zoom: 15 }, name: "Altar" }],
-    [3, { position: { pan: 0, tilt: 10, zoom: 5 }, name: "Organ" }],
-    [4, { position: { pan: 300, tilt: -10, zoom: 20 }, name: "Choir" }],
-    [5, { position: { pan: -150, tilt: 0, zoom: 8 }, name: "Lectern" }],
-    [6, { position: { pan: 0, tilt: 0, zoom: 0 }, name: "Wide Hall" }]
+  private readonly presets = new Map<
+    number,
+    {
+      position: CameraPosition;
+      name?: string;
+      thumbnail?: string;
+      coordinates?: CameraPresetCoordinates;
+      updatedAt?: string;
+    }
+  >([
+    [1, { position: { pan: 100, tilt: 50, zoom: 10 }, name: "Pulpit", coordinates: { pan: 100, tilt: 50, zoom: 10 } }],
+    [2, { position: { pan: -200, tilt: 30, zoom: 15 }, name: "Altar", coordinates: { pan: -200, tilt: 30, zoom: 15 } }],
+    [3, { position: { pan: 0, tilt: 10, zoom: 5 }, name: "Organ", coordinates: { pan: 0, tilt: 10, zoom: 5 } }],
+    [4, { position: { pan: 300, tilt: -10, zoom: 20 }, name: "Choir", coordinates: { pan: 300, tilt: -10, zoom: 20 } }],
+    [5, { position: { pan: -150, tilt: 0, zoom: 8 }, name: "Lectern", coordinates: { pan: -150, tilt: 0, zoom: 8 } }],
+    [6, { position: { pan: 0, tilt: 0, zoom: 0 }, name: "Wide Hall", coordinates: { pan: 0, tilt: 0, zoom: 0 } }]
   ]);
 
   private freed: FreedState = { enabled: false, camId: null, addr: null, port: null };
@@ -118,6 +138,21 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   constructor(id: string, label: string) {
     this.id = id;
     this.label = label;
+  }
+
+  initPresets(presets: CameraPreset[]): void {
+    this.presets.clear();
+    for (const p of presets) {
+      this.presets.set(p.id, {
+        position: p.coordinates
+          ? { pan: p.coordinates.pan, tilt: p.coordinates.tilt, zoom: p.coordinates.zoom }
+          : { pan: 0, tilt: 0, zoom: 0 },
+        ...(p.name ? { name: p.name } : {}),
+        ...(p.thumbnail ? { thumbnail: p.thumbnail } : {}),
+        ...(p.coordinates ? { coordinates: p.coordinates } : {}),
+        ...(p.updatedAt ? { updatedAt: p.updatedAt } : {})
+      });
+    }
   }
 
   getSnapshot(): CameraSnapshot {
@@ -136,7 +171,9 @@ export class SimulatedCameraAdapter implements CameraAdapter {
         .map(([id, p]) => ({
           id,
           ...(p.name ? { name: p.name } : {}),
-          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {})
+          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {}),
+          ...(p.coordinates ? { coordinates: p.coordinates } : {}),
+          ...(p.updatedAt ? { updatedAt: p.updatedAt } : {})
         }))
         .sort((a, b) => a.id - b.id)
     };
@@ -197,13 +234,20 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     }
   }
 
-  async savePreset(presetId: number, name?: string): Promise<void> {
+  async savePreset(presetId: number, name?: string, coordinates?: CameraPresetCoordinates): Promise<void> {
     const existing = this.presets.get(presetId);
     const resolvedName = name ?? existing?.name;
+    const resolvedCoordinates = coordinates ?? existing?.coordinates ?? {
+      pan: this.position.pan,
+      tilt: this.position.tilt,
+      zoom: this.position.zoom
+    };
     this.presets.set(presetId, {
       position: { ...this.position },
       ...(resolvedName ? { name: resolvedName } : {}),
-      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {})
+      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {}),
+      coordinates: resolvedCoordinates,
+      updatedAt: new Date().toISOString()
     });
   }
 
@@ -212,7 +256,9 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     this.presets.set(presetId, {
       position: existing ? { ...existing.position } : { ...this.position },
       ...(existing?.name ? { name: existing.name } : {}),
-      thumbnail
+      ...(existing?.coordinates ? { coordinates: existing.coordinates } : {}),
+      thumbnail,
+      updatedAt: new Date().toISOString()
     });
   }
 
@@ -360,7 +406,16 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private privacyBlur = false;
   private focusMode: FocusMode = "auto";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
-  private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>();
+  private readonly presets = new Map<
+    number,
+    {
+      position: CameraPosition;
+      name?: string;
+      thumbnail?: string;
+      coordinates?: CameraPresetCoordinates;
+      updatedAt?: string;
+    }
+  >();
 
   constructor(config: UdpViscaCameraConfig) {
     this.id = config.id;
@@ -380,6 +435,21 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.logger = config.logger;
   }
 
+  initPresets(presets: CameraPreset[]): void {
+    this.presets.clear();
+    for (const p of presets) {
+      this.presets.set(p.id, {
+        position: p.coordinates
+          ? { pan: p.coordinates.pan, tilt: p.coordinates.tilt, zoom: p.coordinates.zoom }
+          : { pan: 0, tilt: 0, zoom: 0 },
+        ...(p.name ? { name: p.name } : {}),
+        ...(p.thumbnail ? { thumbnail: p.thumbnail } : {}),
+        ...(p.coordinates ? { coordinates: p.coordinates } : {}),
+        ...(p.updatedAt ? { updatedAt: p.updatedAt } : {})
+      });
+    }
+  }
+
   getSnapshot(): CameraSnapshot {
     return {
       id: this.id,
@@ -396,7 +466,9 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
         .map(([id, p]) => ({
           id,
           ...(p.name ? { name: p.name } : {}),
-          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {})
+          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {}),
+          ...(p.coordinates ? { coordinates: p.coordinates } : {}),
+          ...(p.updatedAt ? { updatedAt: p.updatedAt } : {})
         }))
         .sort((a, b) => a.id - b.id)
     };
@@ -446,15 +518,22 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     await this.sendCommand(payload);
   }
 
-  async savePreset(presetId: number, name?: string): Promise<void> {
+  async savePreset(presetId: number, name?: string, coordinates?: CameraPresetCoordinates): Promise<void> {
     const payload = buildPresetSave(presetId);
     await this.sendCommand(payload);
     const existing = this.presets.get(presetId);
     const resolvedName = name ?? existing?.name;
+    const resolvedCoordinates = coordinates ?? existing?.coordinates ?? {
+      pan: this.position.pan,
+      tilt: this.position.tilt,
+      zoom: this.position.zoom
+    };
     this.presets.set(presetId, {
       position: { ...this.position },
       ...(resolvedName ? { name: resolvedName } : {}),
-      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {})
+      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {}),
+      coordinates: resolvedCoordinates,
+      updatedAt: new Date().toISOString()
     });
   }
 
@@ -463,7 +542,9 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.presets.set(presetId, {
       position: existing ? { ...existing.position } : { ...this.position },
       ...(existing?.name ? { name: existing.name } : {}),
-      thumbnail
+      ...(existing?.coordinates ? { coordinates: existing.coordinates } : {}),
+      thumbnail,
+      updatedAt: new Date().toISOString()
     });
   }
 
