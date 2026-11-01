@@ -151,6 +151,10 @@ export class PiCamClient {
     });
   }
 
+  async getPower(cameraId: string): Promise<{ cameraId: string; power: "on" | "standby" | "unreachable" }> {
+    return this.request(`/api/v1/cameras/${cameraId}/power`);
+  }
+
   async getFreed(cameraId: string): Promise<{ cameraId: string; freed: FreedState }> {
     return this.request(`/api/v1/cameras/${cameraId}/freed`);
   }

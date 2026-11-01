@@ -396,7 +396,13 @@ export function registerCameraRoutes(
       });
     }
 
-    await cameraService.setPower(request.params.cameraId, on);
+    try {
+      await cameraService.setPower(request.params.cameraId, on);
+    } catch (err) {
+      return reply.code(502).send({
+        error: { code: "POWER_FAILED", message: err instanceof Error ? err.message : String(err) }
+      });
+    }
     hooks.onPower?.(request.params.cameraId, on);
 
     return reply.code(200).send({
@@ -404,6 +410,15 @@ export function registerCameraRoutes(
       success: true,
       action: `power:${on ? "on" : "standby"}`
     });
+  });
+
+  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/power", async (request, reply) => {
+    if (!cameraService.get(request.params.cameraId)) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+    return { cameraId: request.params.cameraId, power: await cameraService.getPower(request.params.cameraId) };
   });
 
   app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/freed", async (request, reply) => {

@@ -93,6 +93,8 @@ export interface CameraAdapter {
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
   /** VISCA CAM_Power: true wakes the camera, false puts it in standby. */
   setPower(on: boolean): Promise<void>;
+  /** VISCA power inquiry: on, standby, or unreachable when the camera does not answer. */
+  getPowerState(): Promise<"on" | "standby" | "unreachable">;
   /** Reads the camera's FreeD output settings. */
   getFreed(): Promise<FreedState>;
   /** Sets the FreeD target (when given) and turns FreeD output on or off. Returns the state read back. */
@@ -280,8 +282,14 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     }
   }
 
-  async setPower(_on: boolean): Promise<void> {
-    // Simulated: nothing to switch.
+  private power: "on" | "standby" = "on";
+
+  async setPower(on: boolean): Promise<void> {
+    this.power = on ? "on" : "standby";
+  }
+
+  async getPowerState(): Promise<"on" | "standby" | "unreachable"> {
+    return this.power;
   }
 
   async getFreed(): Promise<FreedState> {
@@ -379,6 +387,9 @@ export interface UdpViscaCameraConfig {
   rtmpKey?: string | undefined;
   /** UDP source port for power commands, default 52381 (the camera needs it). 0 picks any port. */
   viscaSourcePort?: number | undefined;
+  /** Optional CGI command (the part after `/storks?cmd=`) tried when VISCA power gets no reply or has no effect. */
+  powerCgiOn?: string | undefined;
+  powerCgiOff?: string | undefined;
   /** Send a VISCA power inquiry this often (ms) to keep the connection state true to the camera. 0 = off. */
   monitorIntervalMs?: number | undefined;
   /** How long the near drive runs before the stop, default 2500 ms. */
@@ -435,6 +446,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly host: string;
   private readonly viscaPort: number;
   private readonly cgiPort: number;
+  private readonly powerCgiOn: string | undefined;
+  private readonly powerCgiOff: string | undefined;
   private readonly authHeader: string | null;
   private readonly rtspUrl: string | null;
   private readonly rtmpServer: string | null;
@@ -470,6 +483,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.host = config.host;
     this.viscaPort = config.viscaPort ?? 52381;
     this.cgiPort = config.cgiPort ?? 80;
+    this.powerCgiOn = config.powerCgiOn;
+    this.powerCgiOff = config.powerCgiOff;
     this.authHeader = config.auth
       ? `Basic ${Buffer.from(`${config.auth.user}:${config.auth.password}`).toString("base64")}`
       : null;
@@ -641,14 +656,72 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.smartFrame = mode === "enable" ? "enabled" : mode === "disable" ? "disabled" : "triggered";
   }
 
+  /** VISCA CAM_Power inquiry (81 09 04 00 FF): 90 50 02 = on, 03 = standby. */
+  async getPowerState(): Promise<"on" | "standby" | "unreachable"> {
+    const packet = createViscaPacket(buildPowerInquiry(), this.sequenceNumber++, 0x0110);
+    let reply: Buffer;
+    try {
+      reply = await this.sendFromViscaPort(packet);
+    } catch {
+      return "unreachable";
+    }
+    for (let i = 0; i + 3 < reply.length; i++) {
+      if (reply[i] === 0x90 && reply[i + 1] === 0x50 && reply[i + 3] === 0xff) {
+        if (reply[i + 2] === 0x02) return "on";
+        if (reply[i + 2] === 0x03) return "standby";
+      }
+    }
+    return "on"; // answered, but not a power state: the camera is up
+  }
+
   /**
-   * Power commands go out from a short-lived socket bound to the VISCA source port,
-   * because the camera answers only that port. The shared socket is left alone.
+   * Power on/standby. The VISCA command goes out from the VISCA source port; if it gets no reply, or
+   * the camera does not change state, the optional CGI command is tried. The result is checked with
+   * a power inquiry, so "sent" is never reported as "switched". Standby counts as done when the camera
+   * stops answering VISCA at all.
    */
   async setPower(on: boolean): Promise<void> {
-    const packet = createViscaPacket(buildPower(on), this.sequenceNumber++);
-    await this.sendFromViscaPort(packet);
+    let viscaError: unknown;
+    try {
+      await this.sendFromViscaPort(createViscaPacket(buildPower(on), this.sequenceNumber++));
+    } catch (err) {
+      viscaError = err;
+    }
+    const settled = async (waitMs: number): Promise<boolean> => {
+      const deadline = Date.now() + waitMs;
+      for (;;) {
+        const state = await this.getPowerState();
+        if (on ? state === "on" : state === "standby" || state === "unreachable") return true;
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    };
+    // A reply-less command is only a failure if the camera also did not change state.
+    if (await settled(viscaError ? 1 : this.powerSettleMs)) {
+      if (on) this.connected = true;
+      return;
+    }
+    const cgiCmd = on ? this.powerCgiOn : this.powerCgiOff;
+    let cgiError: unknown;
+    if (cgiCmd) {
+      try {
+        await this.cgiCommand(cgiCmd, "GET");
+      } catch (err) {
+        cgiError = err;
+      }
+      if (!cgiError && (await settled(this.powerSettleMs))) {
+        if (on) this.connected = true;
+        return;
+      }
+    }
+    const parts = [`Camera ${this.id} did not ${on ? "wake" : "enter standby"}`];
+    if (viscaError) parts.push(`VISCA: ${viscaError instanceof Error ? viscaError.message : String(viscaError)}`);
+    if (cgiError) parts.push(`CGI: ${cgiError instanceof Error ? cgiError.message : String(cgiError)}`);
+    else if (!cgiCmd) parts.push("no CGI power command configured (PICAM_CAMn_POWER_CGI_ON/OFF)");
+    throw new Error(parts.join("; "));
   }
+
+  private readonly powerSettleMs = Number.parseInt(process.env["PICAM_POWER_SETTLE_MS"] ?? "8000", 10) || 8000;
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
     if (enabled) {
