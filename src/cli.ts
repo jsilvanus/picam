@@ -16,8 +16,8 @@ COMMANDS:
   get <camId>                   Get status and position for a camera
   move <camId> <direction> [panSpeed] [tiltSpeed]
                                 Pan/tilt camera (up, down, left, right, diagonals, stop, home, reset)
-  zoom <camId> <in|out|stop> [speed]
-                                Drive optical zoom
+  zoom <camId> <in|out|stop> [seconds] [--speed 0-7]
+                                Drive optical zoom; with seconds, stops by itself after that long
   preset recall <camId> <id>    Recall preset (0-254)
   preset save <camId> <id> [name]
                                 Save current position to preset
@@ -45,12 +45,15 @@ async function run(): Promise<void> {
 
   let url = DEFAULT_URL;
   let json = false;
+  let speedOption: string | undefined;
   const filteredArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--url") {
       url = args[++i] ?? DEFAULT_URL;
+    } else if (a === "--speed") {
+      speedOption = args[++i];
     } else if (a === "--json") {
       json = true;
     } else {
@@ -96,11 +99,23 @@ async function run(): Promise<void> {
       }
 
       case "zoom": {
-        const [camId, action, speed] = subArgs;
-        if (!camId || !action) throw new Error("Usage: picam zoom <camId> <in|out|stop> [speed]");
-        const zSpeed = speed ? Number.parseInt(speed, 10) : undefined;
+        const [camId, action, secondsArg] = subArgs;
+        if (!camId || !action) throw new Error("Usage: picam zoom <camId> <in|out|stop> [seconds] [--speed 0-7]");
+        const zSpeed = speedOption ? Number.parseInt(speedOption, 10) : undefined;
+        const seconds = secondsArg === undefined ? undefined : Number(secondsArg);
+        if (seconds !== undefined && (!Number.isFinite(seconds) || seconds <= 0 || seconds > 30)) {
+          throw new Error("zoom seconds must be a number between 0 and 30");
+        }
+        if (seconds !== undefined && action === "stop") throw new Error("zoom stop takes no seconds");
         const res = await client.zoomCamera(camId, action as ZoomAction, zSpeed);
-        console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} zoom: ${action}`);
+        if (seconds !== undefined) {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+          } finally {
+            await client.zoomCamera(camId, "stop");
+          }
+        }
+        console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} zoom: ${action}${seconds !== undefined ? ` for ${seconds}s, then stop` : ""}`);
         break;
       }
 

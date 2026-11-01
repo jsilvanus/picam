@@ -46,6 +46,7 @@ npx picam move cam1 stop
 
 # Zoom in / out
 npx picam zoom cam1 in
+npx picam zoom cam1 out 2        # zoom out for 2 seconds, then stop (the last number is seconds; --speed 0-7 sets speed)
 npx picam zoom cam1 stop
 
 # Preset management
