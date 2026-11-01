@@ -134,7 +134,15 @@ export interface CameraAdapter {
   getFreed(): Promise<FreedState>;
   /** Sets the FreeD target (when given) and turns FreeD output on or off. Returns the state read back. */
   setFreed(enabled: boolean, target?: FreedTarget): Promise<FreedState>;
-  /** On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF. */
+  /**
+   * On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF.
+   *
+   * The blur is made in the camera lens, so it is in every output of that camera: the SDI picture
+   * the ATEM uses (the broadcast) and the RTMP stream that goes to MediaMTX. They are two separate
+   * outputs. The RTMP/MediaMTX stream is only for picture analysis and the like; the ATEM switcher
+   * takes the SDI picture. So a mask or blur applied to the MediaMTX stream would NOT reach the
+   * broadcast; only the camera's own focus (or something on the SDI/ATEM side) does.
+   */
   setPrivacyBlur(enabled: boolean): Promise<void>;
   /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
   setFocusMode(mode: FocusMode): Promise<void>;
