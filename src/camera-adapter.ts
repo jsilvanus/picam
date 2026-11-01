@@ -403,6 +403,24 @@ export function parseFreedState(body: string): FreedState | null {
   };
 }
 
+/** The RTMP server the camera pushes to, from a get_net_cfg answer (`rtmp_server=rtmp://host:1935/;`). */
+export function parseNetCfgRtmp(body: string): { server: string | null; status: number | null } {
+  const fields = new Map<string, string>();
+  for (const part of body.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) fields.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  const server = fields.get("rtmp_server") || null;
+  const status = fields.get("rtmp_status");
+  return { server, status: status !== undefined && /^\d+$/.test(status) ? Number(status) : null };
+}
+
+/** Two RTMP server URLs are the same target when they differ only in case and trailing slashes. */
+export function sameRtmpServer(a: string, b: string): boolean {
+  const norm = (v: string) => v.trim().replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 export interface CameraLogin {
   user: string;
   password: string;
@@ -757,6 +775,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     throw new Error(parts.join("; "));
   }
 
+  private readonly cgiTimeoutMs = Number.parseInt(process.env["PICAM_CGI_TIMEOUT_MS"] ?? "4000", 10) || 4000;
+
   private readonly powerSettleMs = Number.parseInt(process.env["PICAM_POWER_SETTLE_MS"] ?? "8000", 10) || 8000;
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
@@ -803,8 +823,17 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       if (err instanceof CameraCgiError && err.reason !== "rejected") throw err;
       // A camera that cannot answer the status call is started as before.
     }
-    const targetMatches = before?.server
-      ? before.server.replace(/\/+$/, "") === this.rtmpServer.replace(/\/+$/, "") && (before.key === undefined || before.key === this.rtmpKey)
+    // get_rtmp_status carries no target on FW V90; get_net_cfg has rtmp_server (the key is not readable).
+    let currentServer = before?.server ?? null;
+    if (before?.state === "streaming" && !currentServer) {
+      try {
+        currentServer = parseNetCfgRtmp(await this.cgiCommand(`get_net_cfg(${Date.now()})`, "GET", "/storks/")).server;
+      } catch {
+        currentServer = null; // unknown target: reported as targetMatches null
+      }
+    }
+    const targetMatches = currentServer
+      ? sameRtmpServer(currentServer, this.rtmpServer) && (before?.key === undefined || before.key === this.rtmpKey)
       : null;
     let action: StartStreamResult["action"] = "started";
     if (before?.state === "streaming") {
@@ -855,13 +884,20 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private async cgiCommand(cmd: string, method: "GET" | "POST", base = "/storks"): Promise<string> {
     const url = `http://${this.host}:${this.cgiPort}${base}?cmd=${cmd}`;
     const headers: Record<string, string> = this.authHeader ? { Authorization: this.authHeader } : {};
-    let res: Response;
-    try {
-      res = await fetch(url, { method, headers, signal: AbortSignal.timeout(2000) });
-    } catch {
-      this.logger?.warn({ camera: this.id }, "Camera CGI unreachable");
-      throw new CameraCgiError(`Camera ${this.id} did not answer the CGI request`, "unreachable");
+    let res: Response | undefined;
+    // Reads are retried once (a slow camera often answers the second time); commands are sent once.
+    const attempts = method === "GET" ? 2 : 1;
+    for (let attempt = 1; attempt <= attempts && !res; attempt++) {
+      try {
+        res = await fetch(url, { method, headers, signal: AbortSignal.timeout(this.cgiTimeoutMs) });
+      } catch {
+        if (attempt === attempts) {
+          this.logger?.warn({ camera: this.id }, "Camera CGI unreachable");
+          throw new CameraCgiError(`Camera ${this.id} did not answer the CGI request`, "unreachable");
+        }
+      }
     }
+    if (!res) throw new CameraCgiError(`Camera ${this.id} did not answer the CGI request`, "unreachable");
     const body = await res.text();
     if (res.status === 401 || res.status === 403) {
       this.logger?.warn({ camera: this.id, status: res.status }, "Camera CGI rejected the login");
