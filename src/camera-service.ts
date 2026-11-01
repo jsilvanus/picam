@@ -548,13 +548,13 @@ export class CameraService {
     return snapshot;
   }
 
-  async startStream(id: string): Promise<{ snapshot: CameraSnapshot; streamUrl: string | null }> {
+  async startStream(id: string, options: { restart?: boolean } = {}): Promise<{ snapshot: CameraSnapshot; streamUrl: string | null; action: string; targetMatches: boolean | null }> {
     const cam = this.cameras.get(id);
     if (!cam) {
       throw new Error(`Camera '${id}' not found`);
     }
 
-    const streamUrl = await cam.startStream();
+    const { streamUrl, action, targetMatches } = await cam.startStream(options);
     await this.autoFreed(id, true);
     const snapshot = cam.getSnapshot();
 
@@ -567,7 +567,7 @@ export class CameraService {
       }
     });
 
-    return { snapshot, streamUrl };
+    return { snapshot, streamUrl, action, targetMatches };
   }
 
   async stopStream(id: string): Promise<CameraSnapshot> {
