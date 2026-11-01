@@ -777,6 +777,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
 
   private readonly cgiTimeoutMs = Number.parseInt(process.env["PICAM_CGI_TIMEOUT_MS"] ?? "4000", 10) || 4000;
 
+  private readonly rtmpVerifyMs = Number.parseInt(process.env["PICAM_RTMP_VERIFY_MS"] ?? "8000", 10) || 8000;
+
   private readonly powerSettleMs = Number.parseInt(process.env["PICAM_POWER_SETTLE_MS"] ?? "8000", 10) || 8000;
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
@@ -817,11 +819,14 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       return { streamUrl: this.rtspUrl, action: "started", targetMatches: null };
     }
     let before: ReturnType<typeof parseRtmpStatus> | null = null;
-    try {
-      before = parseRtmpStatus(await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET"));
-    } catch (err) {
-      if (err instanceof CameraCgiError && err.reason !== "rejected") throw err;
-      // A camera that cannot answer the status call is started as before.
+    // An empty or unrecognised answer is a failure: the start is never reported on a camera that does not say its state.
+    before = parseRtmpStatus(await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET"));
+    if (before.state === "unknown") {
+      this.logger?.warn({ camera: this.id, code: before.code }, "Camera RTMP status answer had no recognised rtmp_status");
+      throw new CameraCgiError(
+        `Camera ${this.id} answered the RTMP status request without a recognised status${before.code === null ? " (empty answer)" : ` (code ${before.code})`}`,
+        "rejected"
+      );
     }
     // get_rtmp_status carries no target on FW V90; get_net_cfg has rtmp_server (the key is not readable).
     let currentServer = before?.server ?? null;
@@ -849,10 +854,23 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       action = "restarted";
     }
     await this.cgiCommand(`set_rtmp_start(server=${this.rtmpServer};key=${this.rtmpKey})`, "POST");
-    const status = await this.rtmpStatus();
-    if (status === "failed") {
-      this.logger?.warn({ camera: this.id }, "Camera reported the RTMP push as failed");
-      throw new CameraCgiError(`Camera ${this.id} reported the RTMP push as failed`, "rejected");
+    // The camera must say it streams; polled for a few seconds because the push takes a moment to come up.
+    const deadline = Date.now() + this.rtmpVerifyMs;
+    let last: RtmpState | null = null;
+    for (;;) {
+      last = await this.rtmpStatus();
+      if (last === "streaming") break;
+      if (last === "failed") {
+        this.logger?.warn({ camera: this.id }, "Camera reported the RTMP push as failed");
+        throw new CameraCgiError(`Camera ${this.id} reported the RTMP push as failed`, "rejected");
+      }
+      if (Date.now() >= deadline) {
+        throw new CameraCgiError(
+          `Camera ${this.id} did not report streaming after the start (status ${last ?? "empty or unrecognised"})`,
+          "rejected"
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     this.streaming = true;
     return { streamUrl: this.rtspUrl, action, targetMatches: action === "restarted" ? true : targetMatches };

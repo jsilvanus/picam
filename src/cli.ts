@@ -195,7 +195,7 @@ async function run(): Promise<void> {
         if (!camId || !action) throw new Error("Usage: picam stream <camId> <start|stop>");
         if (action === "start") {
           const res = await client.startStream(camId, { restart });
-          console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId}: ${res.message} (${res.streamUrl ?? "unknown URL"})`);
+          console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId}: ${res.message} (${res.streamUrl ?? "unknown URL"}); target matches configured: ${res.targetMatches === null ? "unknown" : res.targetMatches ? "yes" : "NO"}`);
         } else if (action === "stop") {
           const res = await client.stopStream(camId);
           console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} streaming stopped`);
