@@ -102,3 +102,7 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 > [!IMPORTANT]
 > Any changes to this repository's architectural role, API routes, communication protocols, exposed ports, dependencies, or runtime status **must be documented in the central `piecosystem` coordination repository** (`docs/projects-catalog.md` and `docs/inter-service-matrix.md`).
 > Always verify cross-system health with `npm run status` in `D:\piecosystem`.
+
+## Stream start and RTMP target changes
+
+`picam stream camX start` first reads the camera's `get_rtmp_status` (the AVer PTZ330 answers numerically, `rtmp_status:2;` = streaming; only 2 and 0 are mapped, other codes are logged as unknown). If the camera already streams, nothing is sent and the answer says `action: "already-streaming"`, plus `targetMatches: false` when the camera reports a different server than the configured one. To apply a changed target (host or IP change) use `picam stream camX start --restart` (`POST .../stream/start?restart=1`): it stops the push, waits 1.5 s and starts it again, which interrupts the stream, so do it deliberately.

@@ -79,6 +79,41 @@ export interface FreedTarget {
   port: number;
 }
 
+/** What startStream did. "already-streaming" means nothing was changed on the camera. */
+export interface StartStreamResult {
+  streamUrl: string | null;
+  action: "started" | "already-streaming" | "restarted";
+  /** Whether the target the camera pushes to equals the configured one; null when the camera does not say. */
+  targetMatches: boolean | null;
+}
+
+export type RtmpState = "streaming" | "stopped" | "failed" | "unknown";
+
+/**
+ * Reads the camera's get_rtmp_status answer. The AVer PTZ330 (FW V90) answers numerically
+ * (`rtmp_status:2;`, 2 = streaming as seen on the Pi); older/other answers use words. Only the codes
+ * seen or obvious are mapped (0 = stopped); any other code is "unknown", never a failure.
+ * A server/key in the answer, when present, is returned so the target can be compared.
+ */
+export function parseRtmpStatus(body: string): { state: RtmpState; code: number | null; server?: string; key?: string } {
+  let state: RtmpState = "unknown";
+  let code: number | null = null;
+  const word = /rtmp_status\W+(streaming|stopped|failed)/i.exec(body);
+  if (word) {
+    state = word[1]!.toLowerCase() as RtmpState;
+  } else {
+    const num = /rtmp_status\W+(\d+)/i.exec(body);
+    if (num) {
+      code = Number.parseInt(num[1]!, 10);
+      if (code === 2) state = "streaming";
+      else if (code === 0) state = "stopped";
+    }
+  }
+  const server = /(?:server|url)\W{1,3}(rtmps?:\/\/[^;&"'\s,]+)/i.exec(body)?.[1];
+  const key = /key\W{1,3}([^;&"'\s,]+)/i.exec(body)?.[1];
+  return { state, code, ...(server ? { server } : {}), ...(key ? { key } : {}) };
+}
+
 export interface CameraAdapter {
   readonly id: string;
   readonly label: string;
@@ -105,7 +140,7 @@ export interface CameraAdapter {
   setFocusMode(mode: FocusMode): Promise<void>;
   /** Marks the stream as running when something else (a restart) already started it. */
   markStreaming?(streaming: boolean): void;
-  startStream(): Promise<string | null>;
+  startStream(options?: { restart?: boolean }): Promise<StartStreamResult>;
   stopStream(): Promise<void>;
   /** Re-reads connection and position from the camera (real cameras only). */
   refresh?(): Promise<void>;
@@ -313,9 +348,10 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     if (mode === "auto") this.privacyBlur = false;
   }
 
-  async startStream(): Promise<string | null> {
+  async startStream(): Promise<StartStreamResult> {
+    const was = this.streaming;
     this.streaming = true;
-    return `rtsp://127.0.0.1:8554/${this.id}`;
+    return { streamUrl: `rtsp://127.0.0.1:8554/${this.id}`, action: was ? "already-streaming" : "started", targetMatches: null };
   }
 
   async stopStream(): Promise<void> {
@@ -747,20 +783,50 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     if (mode === "auto") this.privacyBlur = false;
   }
 
-  async startStream(): Promise<string | null> {
-    // One call sets the RTMP server and key and starts the push (AVer web UI API).
-    // Failures are not hidden: a rejected login or an unreachable camera throws
-    // CameraCgiError, and a "failed" status from the camera throws too.
-    if (this.rtmpServer && this.rtmpKey) {
-      await this.cgiCommand(`set_rtmp_start(server=${this.rtmpServer};key=${this.rtmpKey})`, "POST");
-      const status = await this.rtmpStatus();
-      if (status === "failed") {
-        this.logger?.warn({ camera: this.id }, "Camera reported the RTMP push as failed");
-        throw new CameraCgiError(`Camera ${this.id} reported the RTMP push as failed`, "rejected");
+  /**
+   * Starts the RTMP push (one AVer call sets server and key and starts it). If the camera already
+   * streams, nothing is sent: the camera ignores a new target while it pushes, and a stop is a visible
+   * interruption. `restart: true` (explicit) stops it, waits and starts it again so a changed target
+   * (host or IP change) takes effect. The answer says whether the camera's target equals the
+   * configured one when the camera reports it. Failures are not hidden: CameraCgiError for a rejected
+   * login, an unreachable camera or a "failed" status.
+   */
+  async startStream(options: { restart?: boolean } = {}): Promise<StartStreamResult> {
+    if (!(this.rtmpServer && this.rtmpKey)) {
+      this.streaming = true;
+      return { streamUrl: this.rtspUrl, action: "started", targetMatches: null };
+    }
+    let before: ReturnType<typeof parseRtmpStatus> | null = null;
+    try {
+      before = parseRtmpStatus(await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET"));
+    } catch (err) {
+      if (err instanceof CameraCgiError && err.reason !== "rejected") throw err;
+      // A camera that cannot answer the status call is started as before.
+    }
+    const targetMatches = before?.server
+      ? before.server.replace(/\/+$/, "") === this.rtmpServer.replace(/\/+$/, "") && (before.key === undefined || before.key === this.rtmpKey)
+      : null;
+    let action: StartStreamResult["action"] = "started";
+    if (before?.state === "streaming") {
+      this.streaming = true;
+      if (!options.restart) {
+        if (targetMatches === false) {
+          this.logger?.warn({ camera: this.id }, "Camera streams to a different RTMP target; start again with restart to apply the configured one");
+        }
+        return { streamUrl: this.rtspUrl, action: "already-streaming", targetMatches };
       }
+      await this.cgiCommand("set_rtmp_stop", "POST");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      action = "restarted";
+    }
+    await this.cgiCommand(`set_rtmp_start(server=${this.rtmpServer};key=${this.rtmpKey})`, "POST");
+    const status = await this.rtmpStatus();
+    if (status === "failed") {
+      this.logger?.warn({ camera: this.id }, "Camera reported the RTMP push as failed");
+      throw new CameraCgiError(`Camera ${this.id} reported the RTMP push as failed`, "rejected");
     }
     this.streaming = true;
-    return this.rtspUrl;
+    return { streamUrl: this.rtspUrl, action, targetMatches: action === "restarted" ? true : targetMatches };
   }
 
   async stopStream(): Promise<void> {
@@ -775,14 +841,14 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
    * Reads rtmp_status from get_rtmp_status. Returns null when the answer has no
    * recognisable status; that is logged, not treated as a failure.
    */
-  private async rtmpStatus(): Promise<string | null> {
+  private async rtmpStatus(): Promise<RtmpState | null> {
     const body = await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET");
-    const match = /rtmp_status\W+(streaming|stopped|failed)/.exec(body);
-    if (!match) {
-      this.logger?.warn({ camera: this.id }, "Camera RTMP status answer had no recognised rtmp_status");
+    const parsed = parseRtmpStatus(body);
+    if (parsed.state === "unknown") {
+      this.logger?.warn({ camera: this.id, code: parsed.code }, "Camera RTMP status answer had no recognised rtmp_status");
       return null;
     }
-    return match[1]!;
+    return parsed.state;
   }
 
   /** One CGI call on /storks. The login goes only in the Authorization header. Returns the answer body. */

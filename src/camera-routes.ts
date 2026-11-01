@@ -543,7 +543,7 @@ export function registerCameraRoutes(
     });
   });
 
-  app.post<{ Params: { cameraId: string } }>(
+  app.post<{ Params: { cameraId: string }; Querystring: { restart?: string } }>(
     "/api/v1/cameras/:cameraId/stream/start",
     async (request, reply) => {
       const camera = cameraService.get(request.params.cameraId);
@@ -554,12 +554,23 @@ export function registerCameraRoutes(
       }
 
       try {
-        const { streamUrl } = await cameraService.startStream(request.params.cameraId);
+        const { streamUrl, action, targetMatches } = await cameraService.startStream(request.params.cameraId, {
+          restart: request.query.restart === "1" || request.query.restart === "true"
+        });
         return reply.code(200).send({
           cameraId: request.params.cameraId,
           streaming: true,
           streamUrl,
-          message: "Camera stream started"
+          action,
+          targetMatches,
+          message:
+            action === "already-streaming"
+              ? targetMatches === false
+                ? "Camera is already streaming to a different target; start with restart=1 to apply the configured one"
+                : "Camera is already streaming; nothing changed"
+              : action === "restarted"
+                ? "Camera stream restarted with the configured target"
+                : "Camera stream started"
         });
       } catch (err) {
         return sendCameraCgiError(reply, err);

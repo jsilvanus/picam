@@ -28,7 +28,7 @@ COMMANDS:
   focus <camId> <auto|manual>   Set focus mode
   privacy <camId> <on|off>      Toggle privacy blur
   freed <camId>                 Get FreeD tracking output configuration
-  stream <camId> <start|stop>   Start/stop RTMP streaming
+  stream <camId> <start|stop>   Start/stop RTMP streaming (start --restart re-applies the target of a camera that already streams; interrupts the stream)
 
 GLOBAL OPTIONS:
   --url <url>                   picam server URL (default: http://127.0.0.1:3301 or PICAM_URL)
@@ -45,6 +45,7 @@ async function run(): Promise<void> {
 
   let url = DEFAULT_URL;
   let json = false;
+  let restart = false;
   let speedOption: string | undefined;
   const filteredArgs: string[] = [];
 
@@ -56,6 +57,8 @@ async function run(): Promise<void> {
       speedOption = args[++i];
     } else if (a === "--json") {
       json = true;
+    } else if (a === "--restart") {
+      restart = true;
     } else {
       filteredArgs.push(a);
     }
@@ -191,8 +194,8 @@ async function run(): Promise<void> {
         const [camId, action] = subArgs;
         if (!camId || !action) throw new Error("Usage: picam stream <camId> <start|stop>");
         if (action === "start") {
-          const res = await client.startStream(camId);
-          console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} streaming started: ${res.streamUrl ?? "unknown URL"}`);
+          const res = await client.startStream(camId, { restart });
+          console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId}: ${res.message} (${res.streamUrl ?? "unknown URL"})`);
         } else if (action === "stop") {
           const res = await client.stopStream(camId);
           console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} streaming stopped`);

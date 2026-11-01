@@ -191,9 +191,17 @@ export class PiCamClient {
   }
 
   async startStream(
-    cameraId: string
-  ): Promise<{ cameraId: string; streaming: boolean; streamUrl: string | null; message: string }> {
-    return this.request(`/api/v1/cameras/${cameraId}/stream/start`, {
+    cameraId: string,
+    options: { restart?: boolean } = {}
+  ): Promise<{
+    cameraId: string;
+    streaming: boolean;
+    streamUrl: string | null;
+    action: "started" | "already-streaming" | "restarted";
+    targetMatches: boolean | null;
+    message: string;
+  }> {
+    return this.request(`/api/v1/cameras/${cameraId}/stream/start${options.restart ? "?restart=1" : ""}`, {
       method: "POST"
     });
   }
