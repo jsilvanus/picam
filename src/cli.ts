@@ -2,7 +2,7 @@
 import { PiCamClient } from "./client.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
 
-const DEFAULT_URL = process.env["PICAM_URL"] ?? "http://127.0.0.1:3300";
+const DEFAULT_URL = process.env["PICAM_URL"] ?? "http://127.0.0.1:3301";
 
 function printUsage(): void {
   console.log(`
@@ -31,7 +31,7 @@ COMMANDS:
   stream <camId> <start|stop>   Start/stop RTMP streaming
 
 GLOBAL OPTIONS:
-  --url <url>                   picam server URL (default: http://127.0.0.1:3300 or PICAM_URL)
+  --url <url>                   picam server URL (default: http://127.0.0.1:3301 or PICAM_URL)
   --json                        Format output as raw JSON
 `);
 }
