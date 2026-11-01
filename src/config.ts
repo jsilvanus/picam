@@ -24,7 +24,7 @@ export interface AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mode = env["PICAM_MODE"] === "production" ? "production" : "simulation";
-  const port = Number.parseInt(env["PICAM_PORT"] ?? "3300", 10);
+  const port = Number.parseInt(env["PICAM_PORT"] ?? "3301", 10);
   const host = env["PICAM_HOST"] ?? "0.0.0.0";
   const nearLimitM = Number.parseFloat(env["PICAM_NEAR_LIMIT_M"] ?? "5.0");
   const pigatewayUrl = env["PIGATEWAY_URL"]?.trim() || "http://127.0.0.1:3100";
@@ -33,7 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     host,
-    port: Number.isNaN(port) ? 3300 : port,
+    port: Number.isNaN(port) ? 3301 : port,
     mode,
     nearLimitM: Number.isNaN(nearLimitM) ? 5.0 : nearLimitM,
     pigatewayUrl,
