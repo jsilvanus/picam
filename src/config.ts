@@ -3,6 +3,10 @@ export interface AppConfig {
   port: number;
   mode: "simulation" | "production";
   nearLimitM: number;
+  /** Cameras whose privacy blur is sticky: re-applied after every preset recall (PICAM_BLUR_CAMERAS=cam1,cam2). */
+  blurCameras: string[];
+  /** Delay before the blur is re-applied after a recall, so the camera has finished moving (ms). */
+  blurReapplyMs: number;
   /** Where cameras send FreeD while a stream runs (PICAM_FREED_TARGET=host:port). Unset = FreeD is not switched automatically. */
   freedTarget?: { addr: string; port: number } | undefined;
   cam1Name: string;
@@ -42,6 +46,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mode,
     nearLimitM: Number.isNaN(nearLimitM) ? 5.0 : nearLimitM,
     freedTarget,
+    blurCameras: (env["PICAM_BLUR_CAMERAS"] ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+    blurReapplyMs: Math.max(0, Number.parseInt(env["PICAM_BLUR_REAPPLY_MS"] ?? "4000", 10) || 0),
     pigatewayUrl,
     presetsFilePath,
     thumbnailsDir,

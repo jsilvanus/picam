@@ -46,6 +46,7 @@ npx picam move cam1 stop
 
 # Zoom in / out
 npx picam zoom cam1 in
+npx picam zoom cam1 out 2        # zoom out for 2 seconds, then stop (the last number is seconds; --speed 0-7 sets speed)
 npx picam zoom cam1 stop
 
 # Preset management
@@ -69,6 +70,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_VISCA_REPLY_TIMEOUT_MS` | `1000` | How long to wait for a VISCA ACK before a command fails with "no VISCA reply" |
 | `PICAM_HOST` | `0.0.0.0` | Host interface to bind |
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
+| `PICAM_BLUR_CAMERAS` | _(empty)_ | Comma list (e.g. `cam1`). Privacy blur on these cameras is re-applied after every preset recall, so it holds on all presets. Turn it on with `picam privacy cam1 on`; `off` or autofocus ends it |
+| `PICAM_BLUR_REAPPLY_MS` | `4000` | Wait after a recall before the blur is re-applied |
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |
 | `PICAM_CAM1_HOST` | | IP/Hostname of Camera 1 |
 | `PICAM_CAM1_POWER_CGI_ON` / `_OFF` (same for CAM2) | unset | Optional camera CGI command (the part after `/storks?cmd=`) tried when VISCA power gets no reply or has no effect. Find the right command for your model and set it here |

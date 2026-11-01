@@ -57,3 +57,27 @@ test("API routes handle camera listing and movements", async (t) => {
   const powerRes = await client.setPower("cam1", false);
   assert.equal(powerRes.success, true);
 });
+
+test("privacy blur on a sticky camera is re-applied after a preset recall", async (t) => {
+  const config = loadConfig({ PICAM_MODE: "simulation", PICAM_BLUR_CAMERAS: "cam1", PICAM_BLUR_REAPPLY_MS: "20" });
+  const { app, cameraService } = buildApp(config);
+  t.after(async () => {
+    await cameraService.close();
+    await app.close();
+  });
+  const address = await app.listen({ port: 0, host: "127.0.0.1" });
+  const client = new PiCamClient(address);
+
+  await client.setPrivacyBlur("cam1", true);
+  await client.savePreset("cam1", 2, "Test");
+  // Autofocus (as a recall may restore it) ends the blur flag in the adapter, the service re-applies it.
+  await client.recallPreset("cam1", 2);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal((await client.getCamera("cam1")).privacyBlur, true);
+
+  // An explicit off sticks: no re-apply after the next recall.
+  await client.setPrivacyBlur("cam1", false);
+  await client.recallPreset("cam1", 2);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal((await client.getCamera("cam1")).privacyBlur, false);
+});

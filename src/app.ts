@@ -24,6 +24,8 @@ export function buildApp(config: AppConfig): BuildAppResult {
     eventBroker,
     logger: app.log,
     nearLimitM: config.nearLimitM,
+    blurCameras: config.blurCameras,
+    blurReapplyMs: config.blurReapplyMs,
     freedTarget: config.freedTarget,
     cam1Name: config.cam1Name,
     cam1Host: config.cam1Host,
