@@ -53,9 +53,13 @@ export function registerCameraRoutes(
   }
 
   // Camera endpoints
-  app.get("/api/v1/cameras", async () => ({ items: cameraService.list() }));
+  app.get("/api/v1/cameras", async () => {
+    await cameraService.refresh();
+    return { items: cameraService.list() };
+  });
 
   app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId", async (request, reply) => {
+    await cameraService.refresh(request.params.cameraId);
     const camera = cameraService.get(request.params.cameraId);
     if (!camera) {
       return reply.code(404).send({

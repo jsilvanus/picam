@@ -103,6 +103,8 @@ export interface CameraAdapter {
   setFocusMode(mode: FocusMode): Promise<void>;
   startStream(): Promise<string | null>;
   stopStream(): Promise<void>;
+  /** Re-reads connection and position from the camera (real cameras only). */
+  refresh?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -772,6 +774,10 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     } catch {
       return null;
     }
+  }
+
+  async refresh(): Promise<void> {
+    await this.checkConnection();
   }
 
   /** VISCA power inquiry: the camera is "connected" only while it answers. */

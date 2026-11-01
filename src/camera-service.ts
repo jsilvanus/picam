@@ -144,6 +144,12 @@ export class CameraService {
     return [...this.cameras.values()].map((cam) => cam.getSnapshot());
   }
 
+  /** Asks the camera for its current state (connection and position) before a read. */
+  async refresh(id?: string): Promise<void> {
+    const cams = id ? [this.cameras.get(id)] : [...this.cameras.values()];
+    await Promise.all(cams.map((cam) => cam?.refresh?.()));
+  }
+
   get(id: string): CameraSnapshot | undefined {
     return this.cameras.get(id)?.getSnapshot();
   }
