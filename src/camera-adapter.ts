@@ -382,6 +382,30 @@ export interface UdpViscaCameraConfig {
   logger?: FastifyBaseLogger | undefined;
 }
 
+/**
+ * Binds the shared VISCA source port. Another service on the same host (picam and pigateway
+ * both use 52381) may hold it for the length of one command, so EADDRINUSE is retried briefly.
+ */
+async function bindWithRetry(socket: dgram.Socket, port: number): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: Error) => reject(err);
+        socket.once("error", onError);
+        socket.bind(port, () => {
+          socket.off("error", onError);
+          resolve();
+        });
+      });
+      return;
+    } catch (err) {
+      const busy = (err as NodeJS.ErrnoException).code === "EADDRINUSE";
+      if (!busy || port === 0 || attempt >= 40) throw err;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+}
+
 /** How long to wait for the camera's VISCA ACK before reporting an error. */
 const VISCA_REPLY_TIMEOUT_MS = Number.parseInt(process.env["PICAM_VISCA_REPLY_TIMEOUT_MS"] ?? "1000", 10) || 1000;
 
@@ -512,13 +536,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     const run = async (): Promise<void> => {
       const socket = dgram.createSocket("udp4");
       try {
-        await new Promise<void>((resolve, reject) => {
-          socket.once("error", reject);
-          socket.bind(this.viscaSourcePort, () => {
-            socket.off("error", reject);
-            resolve();
-          });
-        });
+        await bindWithRetry(socket, this.viscaSourcePort);
         // Wait for the camera's ACK/completion so that "sent" is not reported as "moved".
         const reply = new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
