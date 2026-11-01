@@ -71,6 +71,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |
 | `PICAM_CAM1_HOST` | | IP/Hostname of Camera 1 |
+| `PICAM_CAM1_POWER_CGI_ON` / `_OFF` (same for CAM2) | unset | Optional camera CGI command (the part after `/storks?cmd=`) tried when VISCA power gets no reply or has no effect. Find the right command for your model and set it here |
+| `PICAM_POWER_SETTLE_MS` | `8000` | How long `power` waits for the camera to reach the new state (checked by VISCA power inquiry) before it reports failure (HTTP 502) |
 | `PICAM_CAMERA_MONITOR_MS` | `30000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
 | `PICAM_MEDIAMTX_API_URL` | `http://127.0.0.1:9997` when the RTSP base is set | MediaMTX control API; at startup picam marks cameras whose path is already live as streaming (and switches FreeD on) |
 | `PICAM_FREED_TARGET` | | `host:port` the cameras send FreeD to while a stream runs (e.g. `192.168.1.78:40000`). FreeD is switched on at stream start and off at stream stop and shutdown; unset = never switched automatically |

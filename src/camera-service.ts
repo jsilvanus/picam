@@ -92,6 +92,8 @@ export class CameraService {
           host: options.cam1Host,
           viscaPort: options.cam1ViscaPort,
           cgiPort: options.cam1CgiPort,
+          powerCgiOn: process.env["PICAM_CAM1_POWER_CGI_ON"] || undefined,
+          powerCgiOff: process.env["PICAM_CAM1_POWER_CGI_OFF"] || undefined,
           auth: basicAuth(options.cam1CgiUser, options.cam1CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam1` : undefined,
           rtmpServer: options.mediaMtxRtmpBaseUrl,
@@ -114,6 +116,8 @@ export class CameraService {
           host: options.cam2Host,
           viscaPort: options.cam2ViscaPort,
           cgiPort: options.cam2CgiPort,
+          powerCgiOn: process.env["PICAM_CAM2_POWER_CGI_ON"] || undefined,
+          powerCgiOff: process.env["PICAM_CAM2_POWER_CGI_OFF"] || undefined,
           auth: basicAuth(options.cam2CgiUser, options.cam2CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam2` : undefined,
           rtmpServer: options.mediaMtxRtmpBaseUrl,
@@ -432,6 +436,13 @@ export class CameraService {
     });
 
     return snapshot;
+  }
+
+  /** VISCA power state: on, standby, or unreachable. */
+  async getPower(id: string): Promise<"on" | "standby" | "unreachable"> {
+    const cam = this.cameras.get(id);
+    if (!cam) throw new Error(`Camera '${id}' not found`);
+    return cam.getPowerState();
   }
 
   async getFreed(id: string): Promise<FreedState> {

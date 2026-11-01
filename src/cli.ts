@@ -24,7 +24,7 @@ COMMANDS:
   preset reset <camId> <id>     Reset/clear preset
   smartframe <camId> <enable|disable|trigger>
                                 Configure AVer SmartFrame auto-framing
-  power <camId> <on|off>        Wake or standby camera
+  power <camId> [on|off]        Show power state, or wake/standby the camera (verified by inquiry)
   focus <camId> <auto|manual>   Set focus mode
   privacy <camId> <on|off>      Toggle privacy blur
   freed <camId>                 Get FreeD tracking output configuration
@@ -135,7 +135,12 @@ async function run(): Promise<void> {
 
       case "power": {
         const [camId, state] = subArgs;
-        if (!camId || !state) throw new Error("Usage: picam power <camId> <on|off>");
+        if (!camId) throw new Error("Usage: picam power <camId> [on|off]");
+        if (!state) {
+          const res = await client.getPower(camId);
+          console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} power: ${res.power}`);
+          break;
+        }
         const on = state === "on" || state === "true";
         const res = await client.setPower(camId, on);
         console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} power: ${on ? "on" : "standby"}`);
