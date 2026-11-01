@@ -66,6 +66,7 @@ Set via environment variables or a `.env` file:
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `PICAM_PORT` | `3301` | Port for the Fastify HTTP server |
+| `PICAM_VISCA_REPLY_TIMEOUT_MS` | `1000` | How long to wait for a VISCA ACK before a command fails with "no VISCA reply" |
 | `PICAM_HOST` | `0.0.0.0` | Host interface to bind |
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |

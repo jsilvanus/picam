@@ -382,6 +382,9 @@ export interface UdpViscaCameraConfig {
   logger?: FastifyBaseLogger | undefined;
 }
 
+/** How long to wait for the camera's VISCA ACK before reporting an error. */
+const VISCA_REPLY_TIMEOUT_MS = Number.parseInt(process.env["PICAM_VISCA_REPLY_TIMEOUT_MS"] ?? "1000", 10) || 1000;
+
 /** Serialises VISCA sends: all cameras share one UDP source port. */
 let viscaSendQueue: Promise<void> = Promise.resolve();
 
@@ -516,9 +519,22 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
             resolve();
           });
         });
+        // Wait for the camera's ACK/completion so that "sent" is not reported as "moved".
+        const reply = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error(`no VISCA reply from ${this.host}:${this.viscaPort} within ${VISCA_REPLY_TIMEOUT_MS} ms`)),
+            VISCA_REPLY_TIMEOUT_MS
+          );
+          socket.once("message", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+        reply.catch(() => undefined);
         await new Promise<void>((resolve, reject) => {
           socket.send(packet, this.viscaPort, this.host, (err) => (err ? reject(err) : resolve()));
         });
+        await reply;
       } finally {
         socket.close();
       }
