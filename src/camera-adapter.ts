@@ -382,6 +382,9 @@ export interface UdpViscaCameraConfig {
   logger?: FastifyBaseLogger | undefined;
 }
 
+/** Serialises VISCA sends: all cameras share one UDP source port. */
+let viscaSendQueue: Promise<void> = Promise.resolve();
+
 export class UdpViscaCameraAdapter implements CameraAdapter {
   readonly id: string;
   readonly label: string;
@@ -485,22 +488,44 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   }
 
   private async sendCommand(payload: number[]): Promise<void> {
-    const socket = await this.ensureSocket();
     const seq = this.sequenceNumber++;
     const packet = createViscaPacket(payload, seq);
+    try {
+      await this.sendFromViscaPort(packet);
+      this.connected = true;
+    } catch (err) {
+      this.connected = false;
+      this.logger?.warn({ err, camera: this.id }, "Failed to send VISCA UDP packet");
+      throw err;
+    }
+  }
 
-    return new Promise((resolve, reject) => {
-      socket.send(packet, this.viscaPort, this.host, (err) => {
-        if (err) {
-          this.connected = false;
-          this.logger?.warn({ err, camera: this.id }, "Failed to send VISCA UDP packet");
-          reject(err);
-        } else {
-          this.connected = true;
-          resolve();
-        }
-      });
-    });
+  /**
+   * The camera answers (and, on the AVer PTZ330, obeys) only datagrams that come from the VISCA
+   * source port. Every send therefore goes out from a short-lived socket bound to that port.
+   * Sends are serialised process-wide, because all cameras share the one source port.
+   */
+  private sendFromViscaPort(packet: Buffer): Promise<void> {
+    const run = async (): Promise<void> => {
+      const socket = dgram.createSocket("udp4");
+      try {
+        await new Promise<void>((resolve, reject) => {
+          socket.once("error", reject);
+          socket.bind(this.viscaSourcePort, () => {
+            socket.off("error", reject);
+            resolve();
+          });
+        });
+        await new Promise<void>((resolve, reject) => {
+          socket.send(packet, this.viscaPort, this.host, (err) => (err ? reject(err) : resolve()));
+        });
+      } finally {
+        socket.close();
+      }
+    };
+    const next = viscaSendQueue.then(run, run);
+    viscaSendQueue = next.catch(() => undefined);
+    return next;
   }
 
   async move(direction: PanTiltDirection, panSpeed = 10, tiltSpeed = 10): Promise<void> {
@@ -566,21 +591,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
    */
   async setPower(on: boolean): Promise<void> {
     const packet = createViscaPacket(buildPower(on), this.sequenceNumber++);
-    const socket = dgram.createSocket("udp4");
-    try {
-      await new Promise<void>((resolve, reject) => {
-        socket.once("error", reject);
-        socket.bind(this.viscaSourcePort, () => {
-          socket.off("error", reject);
-          resolve();
-        });
-      });
-      await new Promise<void>((resolve, reject) => {
-        socket.send(packet, this.viscaPort, this.host, (err) => (err ? reject(err) : resolve()));
-      });
-    } finally {
-      socket.close();
-    }
+    await this.sendFromViscaPort(packet);
   }
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
