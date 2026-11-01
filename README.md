@@ -8,7 +8,7 @@ PTZ camera controller service and CLI for VISCA-over-IP and HTTP/CGI cameras in 
 - **Hardware Presets**: Save, recall, and reset camera hardware presets (0–254) with persistent FreeD ground-truth coordinates and thumbnail image attachments.
 - **FreeD Settling Detection**: Passively evaluates real-time FreeD telemetry against target presets, detecting motion velocity and emitting `preset:in_transit` and `preset:settled` events onto the bus when physical travel halts.
 - **CGI Control**: AVer SmartFrame auto-framing and FreeD target configuration.
-- **Privacy Mode**: Defocus near-limit blur toggle.
+- **Privacy Mode**: Defocus near-limit blur toggle. The blur is made in the camera lens, so it is in both outputs of the camera. The ATEM switcher uses the camera's SDI picture (the broadcast); the RTMP stream that reaches MediaMTX is a separate output used only for picture analysis and similar. Blurring or masking the MediaMTX stream therefore does not change what is broadcast.
 - **Simulation Mode**: Built-in stateful simulation adapter for headless testing without physical cameras.
 - **REST & SSE API**: Fastify server delivering JSON responses and real-time Server-Sent Events.
 - **CLI & Client**: Typed TypeScript client library and standalone CLI `picam`.
