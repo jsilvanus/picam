@@ -75,6 +75,7 @@ Set via environment variables or a `.env` file:
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |
 | `PICAM_CAM1_HOST` | | IP/Hostname of Camera 1 |
 | `PICAM_CAM1_POWER_CGI_ON` / `_OFF` (same for CAM2) | unset | Optional camera CGI command (the part after `/storks?cmd=`) tried when VISCA power gets no reply or has no effect. Find the right command for your model and set it here |
+| `PICAM_CGI_TIMEOUT_MS` | `4000` | Timeout of one camera CGI call; reads (GET) are retried once, commands are sent once |
 | `PICAM_POWER_SETTLE_MS` | `8000` | How long `power` waits for the camera to reach the new state (checked by VISCA power inquiry) before it reports failure (HTTP 502) |
 | `PICAM_CAMERA_MONITOR_MS` | `30000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
 | `PICAM_MEDIAMTX_API_URL` | `http://127.0.0.1:9997` when the RTSP base is set | MediaMTX control API; at startup picam marks cameras whose path is already live as streaming (and switches FreeD on) |
@@ -105,4 +106,4 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 
 ## Stream start and RTMP target changes
 
-`picam stream camX start` first reads the camera's `get_rtmp_status` (the AVer PTZ330 answers numerically, `rtmp_status:2;` = streaming; only 2 and 0 are mapped, other codes are logged as unknown). If the camera already streams, nothing is sent and the answer says `action: "already-streaming"`, plus `targetMatches: false` when the camera reports a different server than the configured one. To apply a changed target (host or IP change) use `picam stream camX start --restart` (`POST .../stream/start?restart=1`): it stops the push, waits 1.5 s and starts it again, which interrupts the stream, so do it deliberately.
+`picam stream camX start` first reads the camera's `get_rtmp_status` (the AVer PTZ330 answers numerically, `rtmp_status:2;` = streaming; only 2 and 0 are mapped, other codes are logged as unknown). If the camera already streams, nothing is sent and the answer says `action: "already-streaming"`, plus `targetMatches` (read from `rtmp_server` in `get_net_cfg`, FW V90; `false` when it differs from the configured server, `null` when it cannot be read; the stream key is not readable). To apply a changed target (host or IP change) use `picam stream camX start --restart` (`POST .../stream/start?restart=1`): it stops the push, waits 1.5 s and starts it again, which interrupts the stream, so do it deliberately.

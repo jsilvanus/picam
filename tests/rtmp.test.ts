@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
-import { parseRtmpStatus, UdpViscaCameraAdapter } from "../src/camera-adapter.js";
+import { parseNetCfgRtmp, parseRtmpStatus, sameRtmpServer, UdpViscaCameraAdapter } from "../src/camera-adapter.js";
 
 test("parseRtmpStatus maps numeric and word answers", () => {
   assert.equal(parseRtmpStatus("rtmp_status:2;").state, "streaming");
@@ -21,7 +21,8 @@ async function fakeCgi(initial: { code: number; target?: string }) {
   const server = http.createServer((req, res) => {
     const cmd = decodeURIComponent(new URL(req.url ?? "", "http://x").search.replace(/^\?cmd=/, ""));
     calls.push(cmd);
-    if (cmd.startsWith("get_rtmp_status")) res.end(`rtmp_status:${state.code};${state.target ? `server=${state.target};key=cam1;` : ""}`);
+    if (cmd.startsWith("get_rtmp_status")) res.end(`rtmp_status:${state.code};`);
+    else if (cmd.startsWith("get_net_cfg")) res.end(`rtmp_status=${state.code};${state.target ? `rtmp_server=${state.target}/;` : ""}hostname=cam;freed_enable=0;`);
     else if (cmd.startsWith("set_rtmp_stop")) { state.code = 0; res.end("ok"); }
     else if (cmd.startsWith("set_rtmp_start")) { state.code = 2; res.end("ok"); }
     else res.end("ok");
@@ -69,5 +70,24 @@ test("start on an idle camera just starts it", async () => {
     assert.equal(res.action, "started");
     assert.ok(cgi.calls.some((c) => c.startsWith("set_rtmp_start")));
     assert.ok(!cgi.calls.some((c) => c.startsWith("set_rtmp_stop")));
+  } finally { await cam.close(); cgi.server.close(); }
+});
+
+test("parseNetCfgRtmp reads rtmp_server and sameRtmpServer ignores slash and case", () => {
+  const cfg = parseNetCfgRtmp("rtmp_status=2;rtmp_server=rtmp://192.168.1.78:1935/;hostname=cam;freed_enable=0;");
+  assert.equal(cfg.server, "rtmp://192.168.1.78:1935/");
+  assert.equal(cfg.status, 2);
+  assert.equal(parseNetCfgRtmp("hostname=cam;").server, null);
+  assert.ok(sameRtmpServer("rtmp://192.168.1.78:1935/", "rtmp://192.168.1.78:1935"));
+  assert.ok(!sameRtmpServer("rtmp://192.168.1.103:1935/", "rtmp://192.168.1.78:1935"));
+});
+
+test("already streaming to the configured target reports targetMatches true", async () => {
+  const cgi = await fakeCgi({ code: 2, target: "rtmp://192.168.1.78:1935" });
+  const cam = adapter(cgi.port);
+  try {
+    const res = await cam.startStream();
+    assert.equal(res.action, "already-streaming");
+    assert.equal(res.targetMatches, true);
   } finally { await cam.close(); cgi.server.close(); }
 });
