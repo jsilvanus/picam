@@ -8,7 +8,7 @@ cam1 (192.168.1.41) and cam2 (192.168.1.42) freeze often and have to be power-cy
 
 ## What AVer exposes (from public documents)
 
-Model is not yet confirmed. Cameras are AVer PTZ with web UI, RTSP 554, VISCA over IP UDP 52381, and a FreeD setting, which fits the PTZ310/PTZ330 family (V2 hardware: PTZ310UV2, PTZ330UV2 and the NDI variants). **[verify]** the exact model and firmware version from the web UI (System > Information).
+Both cameras are **AVer PTZ330** (confirmed by Juha; background in keskuskirkko `docs/hardware/aver-ptz330.md`). That is the original PTZ330 (2019 datasheet, PoE+ capable, 12 V/5 A adapter), not necessarily the V2 hardware (PTZ330UV2) that the release note below was written for. The installed firmware version is unknown. **[verify]** it from the web UI. The PTZ310/330 series firmware notes (V75 to V90) apply to the original model; the V0.0.0000.x notes apply to the V2 models, so whether the log export exists on these cameras depends on their firmware.
 
 AVer's firmware release note for PTZ211/PTZ231/PTZ310UV2/PTZ310UNV2/PTZ330UV2/PTZ330UNV2 and TR models (V0.0.0000.22 to .28, Sep to Dec 2023) documents:
 
@@ -18,6 +18,8 @@ AVer's firmware release note for PTZ211/PTZ231/PTZ310UV2/PTZ310UNV2/PTZ330UV2/PT
 - VISCA Port Mode and FreeD settings on the Network page.
 - V0.0.0000.28 fixes: "RTSP could not be activated when camera was power off", several VISCA inquiry corrections (CAM_Live Freeze among them, which is a picture-freeze command, not a hang fix).
 - Newer PTZ series notes (V75, V83, V88, V90) add web reboot (V75), no-reboot RTSP and RTMP changes (V83, V88), SSHD/HTTPS toggles (V83). None of the notes I could read mention a freeze/hang fix, syslog or SNMP.
+
+The camera's CGI is the `/storks/?cmd=...` pattern (for example `GET /storks/?cmd=get_net_cfg(<ms>)`, `POST /storks/?cmd=set_freed_enable:1`; trailing slash needed, else 301), already used by pimatrix/picam for FreeD. A log download will probably be a `cmd=` of the same kind, but that is a guess.
 
 Not found in public sources: a documented CGI endpoint for log download, SNMP support, or a known-freeze errata. Absence in release notes is not proof that they do not exist. **[verify]** by reading the web UI network traffic (browser dev tools while pressing Export Log) to find the real request URL, and by checking whether the Network page has SNMP or syslog fields.
 
@@ -51,11 +53,13 @@ On `degraded` or `frozen`, picam: emits a `camera:health` event on the existing 
 Ordered from least to most invasive. picam only detects and requests; actuation stays out of picam so it stays generic.
 
 1. **Soft reboot** through the web UI reboot (exists since firmware V75), if its HTTP request can be identified **[verify]**. Often useless in a real hang.
-2. **Switch PoE port cycle** if the cameras are powered by a managed PoE switch **[verify]** how they are powered and which switch. Via SNMP (PoE MIB `pethPsePortAdminEnable`), or the switch's HTTP/SSH API. Best option: no extra hardware, works when the camera is fully hung.
-3. **Smart plug / network relay** (Shelly, Tasmota) if powered by a DC adapter. HTTP call to the plug.
-4. Scheduled nightly reboot: AVer's PTZ Management software supports scheduled reboot; the newest CAM520 notes add it in firmware. For PTZ310/330 this is a software-side feature, so a Pi cron/timer calling option 2 or 3 would do the same.
+2. **Switch PoE port cycle.** The 2020 installer diagram shows no PoE switch and most likely 12 V adapters, so this needs a change: the PTZ330 accepts PoE+ (802.3at, class 4), and the cameras are already on the LAN (.41/.42), so moving them to a managed PoE+ switch is the cleanest fix (no extra hardware at the camera, works in a full hang). **[verify]** how they are powered today and the cable run to the switch. Via SNMP (PoE MIB `pethPsePortAdminEnable`), or the switch's HTTP/SSH API. Best option: no extra hardware, works when the camera is fully hung.
+3. **Smart plug / network relay** (Shelly, Tasmota) on the 12 V adapter's mains side, which is the zero-change option if PoE is not an option. HTTP call to the plug.
+4. Scheduled nightly reboot: AVer's PTZ Management software supports scheduled reboot (a Windows app, not firmware, for the PTZ310/330). A Pi timer calling option 2 or 3 would do the same.
 
-pimatrix reportedly has camera power control; **[verify]** what it actually does (VISCA standby/on, which will not help in a hang) before reusing it. Proposed interface: a `PowerCycler` adapter in picam config (`PICAM_CAM1_POWER_CYCLE_URL` or a driver id) with `cycle(camId)`.
+Note: IR (the AMX path) has no power-cycle function beyond the remote's standby, so it does not help with hangs either.
+
+pimatrix and picam have a camera power endpoint (`POST /api/v1/cameras/{id}/power`, pimatrix #37, plus a VISCA power inquiry with CGI fallback in picam #9); that is VISCA standby/on, which will not help in a hang before reusing it. Proposed interface: a `PowerCycler` adapter in picam config (`PICAM_CAM1_POWER_CYCLE_URL` or a driver id) with `cycle(camId)`.
 
 Auto power-cycle must be off by default and guarded: only when `frozen` for at least 60 s, never while pigateway reports the camera as the program source or while the stream is live (ask pigateway/ATEM), max 2 cycles per hour, and every cycle logged with the log snapshot taken first. Manual `picam power-cycle cam1` always allowed.
 
@@ -69,8 +73,8 @@ Auto power-cycle must be off by default and guarded: only when `frozen` for at l
 
 ### Open questions for the operator
 
-- Exact model and firmware of cam1 and cam2?
-- How are the cameras powered (PoE switch model, or adapters)?
+- Firmware version of cam1 and cam2 (web UI)?
+- How are the cameras powered today (12 V adapters per the 2020 diagram), and is a PoE+ switch available or acceptable?
 - Do freezes happen during streaming, idle, or after specific commands (preset recall, FreeD on)?
 - Does the web UI still respond when frozen?
 
