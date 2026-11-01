@@ -26,6 +26,10 @@ export interface CameraServiceOptions {
   logger?: FastifyBaseLogger | undefined;
   /** Near focus limit (metres) restored when privacy blur goes off. */
   nearLimitM?: number | undefined;
+  /** Cameras whose privacy blur is sticky: re-applied after every preset recall. */
+  blurCameras?: string[] | undefined;
+  /** Delay (ms) before re-applying the blur after a recall. Default 4000. */
+  blurReapplyMs?: number | undefined;
   /** When set, FreeD is switched on towards this target while a stream runs and off when it stops. */
   freedTarget?: { addr: string; port: number } | undefined;
   /** MediaMTX control API base; when set, running camera paths are picked up at startup. */
@@ -64,9 +68,16 @@ export class CameraService {
   private readonly settlingTracker: CameraSettlingTracker;
   private readonly pigatewayUrl: string;
   private readonly fetchFn: typeof fetch;
+  /** Cameras that should be blurred; set when blur is turned on, cleared by an explicit off or autofocus. */
+  private readonly stickyBlur = new Set<string>();
+  private readonly blurCameras: Set<string>;
+  private readonly blurReapplyMs: number;
+  private readonly blurTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(options: CameraServiceOptions) {
     this.eventBroker = options.eventBroker;
+    this.blurCameras = new Set(options.blurCameras ?? []);
+    this.blurReapplyMs = options.blurReapplyMs ?? 4000;
     this.freedTarget = options.freedTarget;
     this.mediaMtxApiUrl = options.mediaMtxApiUrl?.replace(/\/+$/, "");
     this.logger = options.logger;
@@ -218,6 +229,7 @@ export class CameraService {
     await cam.recallPreset(presetId);
     const snapshot = cam.getSnapshot();
     const preset = this.presetStore.getPreset(id, presetId);
+    this.scheduleBlurReapply(id);
 
     this.eventBroker?.emit({
       type: "camera",
@@ -472,6 +484,24 @@ export class CameraService {
     return freed;
   }
 
+  /**
+   * A preset recall brings the camera's stored focus back. For a camera in PICAM_BLUR_CAMERAS whose
+   * blur is on, the blur is applied again once the move is done, so it holds on every preset.
+   */
+  private scheduleBlurReapply(id: string): void {
+    if (!this.blurCameras.has(id) || !this.stickyBlur.has(id)) return;
+    clearTimeout(this.blurTimers.get(id));
+    const timer = setTimeout(() => {
+      this.blurTimers.delete(id);
+      if (!this.stickyBlur.has(id)) return;
+      this.setPrivacyBlur(id, true).catch((err) => {
+        this.logger?.warn({ camera: id, err }, "Could not re-apply privacy blur after preset recall");
+      });
+    }, this.blurReapplyMs);
+    timer.unref?.();
+    this.blurTimers.set(id, timer);
+  }
+
   async setPrivacyBlur(id: string, enabled: boolean): Promise<CameraSnapshot> {
     const cam = this.cameras.get(id);
     if (!cam) {
@@ -479,6 +509,8 @@ export class CameraService {
     }
 
     await cam.setPrivacyBlur(enabled);
+    if (enabled) this.stickyBlur.add(id);
+    else this.stickyBlur.delete(id);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -500,6 +532,7 @@ export class CameraService {
     }
 
     await cam.setFocusMode(mode);
+    if (mode === "auto") this.stickyBlur.delete(id);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -600,6 +633,8 @@ export class CameraService {
   }
 
   async close(): Promise<void> {
+    for (const t of this.blurTimers.values()) clearTimeout(t);
+    this.blurTimers.clear();
     for (const id of [...this.freedAuto]) {
       await this.autoFreed(id, false);
     }
