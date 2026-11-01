@@ -71,6 +71,7 @@ Set via environment variables or a `.env` file:
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |
 | `PICAM_CAM1_HOST` | | IP/Hostname of Camera 1 |
+| `PICAM_CAMERA_MONITOR_MS` | `5000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |
 | `PICAM_CAM1_CGI_USER` | | Camera HTTP admin username |
