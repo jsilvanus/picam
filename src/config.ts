@@ -3,6 +3,8 @@ export interface AppConfig {
   port: number;
   mode: "simulation" | "production";
   nearLimitM: number;
+  /** Where cameras send FreeD while a stream runs (PICAM_FREED_TARGET=host:port). Unset = FreeD is not switched automatically. */
+  freedTarget?: { addr: string; port: number } | undefined;
   cam1Name: string;
   cam1Host: string;
   cam1ViscaPort: number;
@@ -27,6 +29,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = Number.parseInt(env["PICAM_PORT"] ?? "3301", 10);
   const host = env["PICAM_HOST"] ?? "0.0.0.0";
   const nearLimitM = Number.parseFloat(env["PICAM_NEAR_LIMIT_M"] ?? "5.0");
+  const freedTarget = parseFreedTarget(env["PICAM_FREED_TARGET"]);
   const pigatewayUrl = env["PIGATEWAY_URL"]?.trim() || "http://127.0.0.1:3100";
   const presetsFilePath = env["PICAM_PRESETS_FILE"]?.trim() || undefined;
   const thumbnailsDir = env["PICAM_THUMBNAILS_DIR"]?.trim() || undefined;
@@ -36,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: Number.isNaN(port) ? 3301 : port,
     mode,
     nearLimitM: Number.isNaN(nearLimitM) ? 5.0 : nearLimitM,
+    freedTarget,
     pigatewayUrl,
     presetsFilePath,
     thumbnailsDir,
@@ -57,4 +61,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mediaMtxRtspBaseUrl: env["PICAM_MEDIAMTX_RTSP_BASE_URL"] || undefined,
     mediaMtxRtmpBaseUrl: env["PICAM_MEDIAMTX_RTMP_BASE_URL"] || undefined
   };
+}
+
+function parseFreedTarget(value: string | undefined): { addr: string; port: number } | undefined {
+  const match = /^(.+):(\d{1,5})$/.exec(value?.trim() ?? "");
+  if (!match) return undefined;
+  const port = Number.parseInt(match[2]!, 10);
+  return port > 0 && port < 65536 ? { addr: match[1]!, port } : undefined;
 }

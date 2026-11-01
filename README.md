@@ -71,7 +71,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
 | `PICAM_NEAR_LIMIT_M` | `5.0` | Distance limit in metres for focus blur restoration |
 | `PICAM_CAM1_HOST` | | IP/Hostname of Camera 1 |
-| `PICAM_CAMERA_MONITOR_MS` | `5000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
+| `PICAM_CAMERA_MONITOR_MS` | `30000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
+| `PICAM_FREED_TARGET` | | `host:port` the cameras send FreeD to while a stream runs (e.g. `192.168.1.78:40000`). FreeD is switched on at stream start and off at stream stop and shutdown; unset = never switched automatically |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |
 | `PICAM_CAM1_CGI_USER` | | Camera HTTP admin username |

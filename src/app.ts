@@ -24,6 +24,7 @@ export function buildApp(config: AppConfig): BuildAppResult {
     eventBroker,
     logger: app.log,
     nearLimitM: config.nearLimitM,
+    freedTarget: config.freedTarget,
     cam1Name: config.cam1Name,
     cam1Host: config.cam1Host,
     cam1ViscaPort: config.cam1ViscaPort,

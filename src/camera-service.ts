@@ -26,6 +26,8 @@ export interface CameraServiceOptions {
   logger?: FastifyBaseLogger | undefined;
   /** Near focus limit (metres) restored when privacy blur goes off. */
   nearLimitM?: number | undefined;
+  /** When set, FreeD is switched on towards this target while a stream runs and off when it stops. */
+  freedTarget?: { addr: string; port: number } | undefined;
   cam1Name?: string | undefined;
   cam1Host?: string | undefined;
   cam1ViscaPort?: number | undefined;
@@ -63,6 +65,7 @@ export class CameraService {
 
   constructor(options: CameraServiceOptions) {
     this.eventBroker = options.eventBroker;
+    this.freedTarget = options.freedTarget;
     this.logger = options.logger;
     this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3100").replace(/\/+$/, "");
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
@@ -91,7 +94,7 @@ export class CameraService {
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam1",
           nearLimitM: options.nearLimitM,
-          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "5000", 10) || 0,
+          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "30000", 10) || 0,
           logger: options.logger
         })
       );
@@ -113,7 +116,7 @@ export class CameraService {
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam2",
           nearLimitM: options.nearLimitM,
-          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "5000", 10) || 0,
+          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "30000", 10) || 0,
           logger: options.logger
         })
       );
@@ -499,6 +502,7 @@ export class CameraService {
     }
 
     const streamUrl = await cam.startStream();
+    await this.autoFreed(id, true);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -520,6 +524,7 @@ export class CameraService {
     }
 
     await cam.stopStream();
+    await this.autoFreed(id, false);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -534,7 +539,28 @@ export class CameraService {
     return snapshot;
   }
 
+  /** FreeD only runs while a stream does, so an idle camera sends no tracking data. Failures are logged, never fatal. */
+  private readonly freedTarget: { addr: string; port: number } | undefined;
+  private readonly freedAuto = new Set<string>();
+
+  private async autoFreed(id: string, enabled: boolean): Promise<void> {
+    const target = this.freedTarget;
+    if (!target) return;
+    if (!enabled && !this.freedAuto.has(id)) return;
+    try {
+      const camId = 100 + (Number.parseInt(id.replace(/\D/g, ""), 10) || 0);
+      await this.setFreed(id, enabled, enabled ? { camId, addr: target.addr, port: target.port } : undefined);
+      if (enabled) this.freedAuto.add(id);
+      else this.freedAuto.delete(id);
+    } catch (err) {
+      this.logger?.warn({ err, camera: id }, "Automatic FreeD switch failed");
+    }
+  }
+
   async close(): Promise<void> {
+    for (const id of [...this.freedAuto]) {
+      await this.autoFreed(id, false);
+    }
     for (const cam of this.cameras.values()) {
       await cam.close();
     }
