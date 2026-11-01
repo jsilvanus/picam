@@ -83,7 +83,7 @@ Auto power-cycle must be off by default and guarded: only when `frozen` for at l
 
 1. Smart plugs with energy metering on both cameras (also gives the power-cycle path). Or move to a PoE+ switch.
 2. Health watchdog, event ring buffer and stream-health evidence (section 2 and the update above), stored under `data/camera-logs/`.
-3. Health watchdog and API/CLI (section 2).
+3. Health API and CLI (`picam health`).
 4. Power-cycle adapter, manual first, then guarded auto.
 5. Firmware is already V90, the latest found. If AVer support has a newer or beta build, install it only after logs are being collected, so there is a before/after comparison. Otherwise send the first captured logs to AVer support with the freeze times.
 
