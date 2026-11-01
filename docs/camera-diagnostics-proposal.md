@@ -8,7 +8,7 @@ cam1 (192.168.1.41) and cam2 (192.168.1.42) freeze often and have to be power-cy
 
 ## What AVer exposes (from public documents)
 
-Both cameras are **AVer PTZ330** (confirmed by Juha; background in keskuskirkko `docs/hardware/aver-ptz330.md`). That is the original PTZ330 (2019 datasheet, PoE+ capable, 12 V/5 A adapter), not necessarily the V2 hardware (PTZ330UV2) that the release note below was written for. The installed firmware version is unknown. **[verify]** it from the web UI. The PTZ310/330 series firmware notes (V75 to V90) apply to the original model; the V0.0.0000.x notes apply to the V2 models, so whether the log export exists on these cameras depends on their firmware.
+Both cameras are **AVer PTZ330** (confirmed by Juha; background in keskuskirkko `docs/hardware/aver-ptz330.md`). That is the original PTZ330 (2019 datasheet, PoE+ capable, 12 V/5 A adapter), not necessarily the V2 hardware (PTZ330UV2) that the release note below was written for. Installed firmware, as reported by Juha: **s000000.90**, i.e. series version **V90**, which is the newest PTZ310/330 release note I could find (2023-12-27, ONVIF change only; no freeze fix listed). So a firmware update is probably not available and not the fix; **[verify]** on AVer's download page that nothing newer than V90 exists. The PTZ310/330 series firmware notes (V75 to V90) apply to the original model; the V0.0.0000.x notes apply to the V2 models, so whether the log export exists on V90 has to be checked in the web UI.
 
 AVer's firmware release note for PTZ211/PTZ231/PTZ310UV2/PTZ310UNV2/PTZ330UV2/PTZ330UNV2 and TR models (V0.0.0000.22 to .28, Sep to Dec 2023) documents:
 
@@ -69,11 +69,11 @@ Auto power-cycle must be off by default and guarded: only when `frozen` for at l
 2. Log listener plus raw storage (1.2) once the format is known.
 3. Health watchdog and API/CLI (section 2).
 4. Power-cycle adapter, manual first, then guarded auto.
-5. Firmware update to the latest AVer release, on site, after logs are being collected (so a before/after comparison exists).
+5. Firmware is already V90, the latest found. If AVer support has a newer or beta build, install it only after logs are being collected, so there is a before/after comparison. Otherwise send the first captured logs to AVer support with the freeze times.
 
 ### Open questions for the operator
 
-- Firmware version of cam1 and cam2 (web UI)?
+- Is firmware s000000.90 on both cameras, and does the web UI's System page have Export Log and a log IP/port field?
 - How are the cameras powered today (12 V adapters per the 2020 diagram), and is a PoE+ switch available or acceptable?
 - Do freezes happen during streaming, idle, or after specific commands (preset recall, FreeD on)?
 - Does the web UI still respond when frozen?
