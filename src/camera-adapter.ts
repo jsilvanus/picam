@@ -101,6 +101,8 @@ export interface CameraAdapter {
   setPrivacyBlur(enabled: boolean): Promise<void>;
   /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
   setFocusMode(mode: FocusMode): Promise<void>;
+  /** Marks the stream as running when something else (a restart) already started it. */
+  markStreaming?(streaming: boolean): void;
   startStream(): Promise<string | null>;
   stopStream(): Promise<void>;
   /** Re-reads connection and position from the camera (real cameras only). */
@@ -781,6 +783,10 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   }
 
   /** VISCA power inquiry: the camera is "connected" only while it answers. */
+  markStreaming(streaming: boolean): void {
+    this.streaming = streaming;
+  }
+
   async checkConnection(): Promise<boolean> {
     const packet = createViscaPacket([0x81, 0x09, 0x04, 0x00, 0xff], this.sequenceNumber++, 0x0110);
     try {
