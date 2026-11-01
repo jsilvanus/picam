@@ -18,6 +18,8 @@ export interface AppConfig {
   cam2CgiUser?: string | undefined;
   cam2CgiPassword?: string | undefined;
   mediaMtxRtspBaseUrl?: string | undefined;
+  /** MediaMTX control API, e.g. http://127.0.0.1:9997; used at startup to learn which camera paths are already live. */
+  mediaMtxApiUrl?: string | undefined;
   mediaMtxRtmpBaseUrl?: string | undefined;
   pigatewayUrl: string;
   presetsFilePath?: string | undefined;
@@ -59,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cam2CgiPassword: env["PICAM_CAM2_CGI_PASSWORD"] || undefined,
 
     mediaMtxRtspBaseUrl: env["PICAM_MEDIAMTX_RTSP_BASE_URL"] || undefined,
+    mediaMtxApiUrl: env["PICAM_MEDIAMTX_API_URL"] || (env["PICAM_MEDIAMTX_RTSP_BASE_URL"] ? "http://127.0.0.1:9997" : undefined),
     mediaMtxRtmpBaseUrl: env["PICAM_MEDIAMTX_RTMP_BASE_URL"] || undefined
   };
 }

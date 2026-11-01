@@ -28,6 +28,8 @@ export interface CameraServiceOptions {
   nearLimitM?: number | undefined;
   /** When set, FreeD is switched on towards this target while a stream runs and off when it stops. */
   freedTarget?: { addr: string; port: number } | undefined;
+  /** MediaMTX control API base; when set, running camera paths are picked up at startup. */
+  mediaMtxApiUrl?: string | undefined;
   cam1Name?: string | undefined;
   cam1Host?: string | undefined;
   cam1ViscaPort?: number | undefined;
@@ -66,6 +68,7 @@ export class CameraService {
   constructor(options: CameraServiceOptions) {
     this.eventBroker = options.eventBroker;
     this.freedTarget = options.freedTarget;
+    this.mediaMtxApiUrl = options.mediaMtxApiUrl?.replace(/\/+$/, "");
     this.logger = options.logger;
     this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3100").replace(/\/+$/, "");
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
@@ -546,6 +549,7 @@ export class CameraService {
   }
 
   /** FreeD only runs while a stream does, so an idle camera sends no tracking data. Failures are logged, never fatal. */
+  private readonly mediaMtxApiUrl: string | undefined;
   private readonly freedTarget: { addr: string; port: number } | undefined;
   private readonly freedAuto = new Set<string>();
 
@@ -560,6 +564,27 @@ export class CameraService {
       else this.freedAuto.delete(id);
     } catch (err) {
       this.logger?.warn({ err, camera: id }, "Automatic FreeD switch failed");
+    }
+  }
+
+  /**
+   * After a restart a camera may still be pushing its stream. Ask MediaMTX which paths are live,
+   * mark those cameras as streaming and switch FreeD on for them, as a stream start would.
+   */
+  async syncStreams(): Promise<void> {
+    if (!this.mediaMtxApiUrl) return;
+    try {
+      const res = await this.fetchFn(`${this.mediaMtxApiUrl}/v3/paths/list`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { items?: Array<{ name?: string; ready?: boolean }> };
+      for (const item of body.items ?? []) {
+        const cam = item.name ? this.cameras.get(item.name) : undefined;
+        if (!cam || !item.ready || !cam.markStreaming) continue;
+        cam.markStreaming(true);
+        await this.autoFreed(item.name!, true);
+      }
+    } catch (err) {
+      this.logger?.warn({ err }, "Could not read stream state from MediaMTX");
     }
   }
 
