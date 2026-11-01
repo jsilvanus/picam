@@ -408,11 +408,21 @@ async function bindWithRetry(socket: dgram.Socket, port: number): Promise<void> 
   }
 }
 
+/** Decodes Pan-TiltPosInq (90 50 0p0p0p0p 0t0t0t0t FF) and ZoomPosInq (90 50 0z0z0z0z FF) replies. */
+export function parseViscaPosition(pt: Uint8Array, zoom: Uint8Array): CameraPosition | null {
+  if (pt.length < 11 || pt[0] !== 0x90 || pt[1] !== 0x50 || zoom.length < 7 || zoom[0] !== 0x90 || zoom[1] !== 0x50) {
+    return null;
+  }
+  const word = (b: Uint8Array, o: number) => ((b[o]! & 0xf) << 12) | ((b[o + 1]! & 0xf) << 8) | ((b[o + 2]! & 0xf) << 4) | (b[o + 3]! & 0xf);
+  const signed = (v: number) => (v > 0x7fff ? v - 0x10000 : v);
+  return { pan: signed(word(pt, 2)), tilt: signed(word(pt, 6)), zoom: word(zoom, 2) };
+}
+
 /** How long to wait for the camera's VISCA ACK before reporting an error. */
 const VISCA_REPLY_TIMEOUT_MS = Number.parseInt(process.env["PICAM_VISCA_REPLY_TIMEOUT_MS"] ?? "1000", 10) || 1000;
 
 /** Serialises VISCA sends: all cameras share one UDP source port. */
-let viscaSendQueue: Promise<void> = Promise.resolve();
+let viscaSendQueue: Promise<unknown> = Promise.resolve();
 
 export class UdpViscaCameraAdapter implements CameraAdapter {
   readonly id: string;
@@ -540,27 +550,27 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
    * source port. Every send therefore goes out from a short-lived socket bound to that port.
    * Sends are serialised process-wide, because all cameras share the one source port.
    */
-  private sendFromViscaPort(packet: Buffer): Promise<void> {
-    const run = async (): Promise<void> => {
+  private sendFromViscaPort(packet: Buffer): Promise<Buffer> {
+    const run = async (): Promise<Buffer> => {
       const socket = dgram.createSocket("udp4");
       try {
         await bindWithRetry(socket, this.viscaSourcePort);
         // Wait for the camera's ACK/completion so that "sent" is not reported as "moved".
-        const reply = new Promise<void>((resolve, reject) => {
+        const reply = new Promise<Buffer>((resolve, reject) => {
           const timer = setTimeout(
             () => reject(new Error(`no VISCA reply from ${this.host}:${this.viscaPort} within ${VISCA_REPLY_TIMEOUT_MS} ms`)),
             VISCA_REPLY_TIMEOUT_MS
           );
-          socket.once("message", () => {
+          socket.once("message", (msg: Buffer) => {
             clearTimeout(timer);
-            resolve();
+            resolve(msg);
           });
         });
         reply.catch(() => undefined);
         await new Promise<void>((resolve, reject) => {
           socket.send(packet, this.viscaPort, this.host, (err) => (err ? reject(err) : resolve()));
         });
-        await reply;
+        return await reply;
       } finally {
         socket.close();
       }
@@ -748,6 +758,22 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     return this.getFreed();
   }
 
+  /**
+   * Reads pan/tilt/zoom with VISCA position inquiries. Values are the camera's raw units
+   * (signed 16-bit pan and tilt, unsigned zoom), not degrees. A failed read leaves the last value.
+   */
+  async readPosition(): Promise<CameraPosition | null> {
+    try {
+      const pt = await this.sendFromViscaPort(createViscaPacket([0x81, 0x09, 0x06, 0x12, 0xff], this.sequenceNumber++, 0x0110));
+      const z = await this.sendFromViscaPort(createViscaPacket([0x81, 0x09, 0x04, 0x47, 0xff], this.sequenceNumber++, 0x0110));
+      const position = parseViscaPosition(pt.subarray(8), z.subarray(8));
+      if (position) this.position = position;
+      return position;
+    } catch {
+      return null;
+    }
+  }
+
   /** VISCA power inquiry: the camera is "connected" only while it answers. */
   async checkConnection(): Promise<boolean> {
     const packet = createViscaPacket([0x81, 0x09, 0x04, 0x00, 0xff], this.sequenceNumber++, 0x0110);
@@ -757,6 +783,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     } catch {
       this.connected = false;
     }
+    if (this.connected) await this.readPosition();
     return this.connected;
   }
 
