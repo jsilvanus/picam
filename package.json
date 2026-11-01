@@ -35,7 +35,7 @@
     "service": "picam",
     "displayName": "PiCam",
     "layer": "southbound-hardware",
-    "port": 3301,
+    "port": 3102,
     "ports": {},
     "healthEndpoint": "/health",
     "envPortVar": "PICAM_PORT"

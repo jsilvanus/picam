@@ -81,7 +81,7 @@ export class CameraService {
     this.freedTarget = options.freedTarget;
     this.mediaMtxApiUrl = options.mediaMtxApiUrl?.replace(/\/+$/, "");
     this.logger = options.logger;
-    this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3100").replace(/\/+$/, "");
+    this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3000").replace(/\/+$/, "");
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
     this.presetStore =
       options.presetStore ??
