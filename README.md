@@ -20,42 +20,42 @@ PTZ camera controller service and CLI for VISCA-over-IP and HTTP/CGI cameras in 
 ### Installation
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 ### Running
 
 ```bash
 # Start in simulation mode
-npm run dev
+pnpm run dev
 
 # Or in production
-PICAM_MODE=production npm start
+PICAM_MODE=production pnpm start
 ```
 
 ### CLI Usage
 
 ```bash
 # List configured cameras
-npx picam list
+pnpm exec picam list
 
 # Pan / tilt continuous driving
-npx picam move cam1 up
-npx picam move cam1 stop
+pnpm exec picam move cam1 up
+pnpm exec picam move cam1 stop
 
 # Zoom in / out
-npx picam zoom cam1 in
-npx picam zoom cam1 out 2        # zoom out for 2 seconds, then stop (the last number is seconds; --speed 0-7 sets speed)
-npx picam zoom cam1 stop
+pnpm exec picam zoom cam1 in
+pnpm exec picam zoom cam1 out 2        # zoom out for 2 seconds, then stop (the last number is seconds; --speed 0-7 sets speed)
+pnpm exec picam zoom cam1 stop
 
 # Preset management
-npx picam preset recall cam1 1
-npx picam preset save cam1 2 "Pulpit"
+pnpm exec picam preset recall cam1 1
+pnpm exec picam preset save cam1 2 "Pulpit"
 
 # Focus & privacy
-npx picam focus cam1 auto
-npx picam privacy cam1 on
+pnpm exec picam focus cam1 auto
+pnpm exec picam privacy cam1 on
 ```
 
 ---
@@ -66,7 +66,7 @@ Set via environment variables or a `.env` file:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `PICAM_PORT` | `3301` | Port for the Fastify HTTP server |
+| `PICAM_PORT` | `3102` | Port for the Fastify HTTP server |
 | `PICAM_VISCA_REPLY_TIMEOUT_MS` | `1000` | How long to wait for a VISCA ACK before a command fails with "no VISCA reply" |
 | `PICAM_HOST` | `0.0.0.0` | Host interface to bind |
 | `PICAM_MODE` | `simulation` | `simulation` or `production` |
@@ -103,7 +103,7 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 
 > [!IMPORTANT]
 > Any changes to this repository's architectural role, API routes, communication protocols, exposed ports, dependencies, or runtime status **must be documented in the central `piecosystem` coordination repository** (`docs/projects-catalog.md` and `docs/inter-service-matrix.md`).
-> Always verify cross-system health with `npm run status` in `D:\piecosystem`.
+> Always verify cross-system health with `pnpm run status` in `D:\piecosystem`.
 
 ## Stream start and RTMP target changes
 

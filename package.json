@@ -4,6 +4,7 @@
   "description": "PTZ camera controller service and CLI (VISCA-over-IP, CGI) in the Raspberry Pi production ecosystem",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.23.0",
   "engines": {
     "node": ">=22"
   },
@@ -29,5 +30,14 @@
   "files": [
     "dist",
     "bin"
-  ]
+  ],
+  "pi": {
+    "service": "picam",
+    "displayName": "PiCam",
+    "layer": "Layer 1: Southbound hardware",
+    "port": 3102,
+    "ports": {},
+    "healthEndpoint": "/health",
+    "envPortVar": "PICAM_PORT"
+  }
 }
