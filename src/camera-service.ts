@@ -91,6 +91,7 @@ export class CameraService {
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam1",
           nearLimitM: options.nearLimitM,
+          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "5000", 10) || 0,
           logger: options.logger
         })
       );
@@ -112,6 +113,7 @@ export class CameraService {
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam2",
           nearLimitM: options.nearLimitM,
+          monitorIntervalMs: Number.parseInt(process.env["PICAM_CAMERA_MONITOR_MS"] ?? "5000", 10) || 0,
           logger: options.logger
         })
       );

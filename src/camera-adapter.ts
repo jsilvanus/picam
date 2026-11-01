@@ -375,6 +375,8 @@ export interface UdpViscaCameraConfig {
   rtmpKey?: string | undefined;
   /** UDP source port for power commands, default 52381 (the camera needs it). 0 picks any port. */
   viscaSourcePort?: number | undefined;
+  /** Send a VISCA power inquiry this often (ms) to keep the connection state true to the camera. 0 = off. */
+  monitorIntervalMs?: number | undefined;
   /** How long the near drive runs before the stop, default 2500 ms. */
   focusDriveMs?: number | undefined;
   /** Near focus limit in metres restored when privacy blur goes off, default 1.5. */
@@ -431,6 +433,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private socket: dgram.Socket | null = null;
   private sequenceNumber = 1;
   private connected = false;
+  private monitorTimer: NodeJS.Timeout | null = null;
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
   private privacyBlur = false;
@@ -460,6 +463,11 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.rtmpServer = config.rtmpServer ?? null;
     this.rtmpKey = config.rtmpKey ?? null;
     this.viscaSourcePort = config.viscaSourcePort ?? 52381;
+    if ((config.monitorIntervalMs ?? 0) > 0) {
+      this.monitorTimer = setInterval(() => void this.checkConnection(), config.monitorIntervalMs);
+      this.monitorTimer.unref();
+      void this.checkConnection();
+    }
     this.focusDriveMs = config.focusDriveMs ?? 2500;
     this.nearLimitM = config.nearLimitM ?? 1.5;
     this.logger = config.logger;
@@ -740,7 +748,23 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     return this.getFreed();
   }
 
+  /** VISCA power inquiry: the camera is "connected" only while it answers. */
+  async checkConnection(): Promise<boolean> {
+    const packet = createViscaPacket([0x81, 0x09, 0x04, 0x00, 0xff], this.sequenceNumber++, 0x0110);
+    try {
+      await this.sendFromViscaPort(packet);
+      this.connected = true;
+    } catch {
+      this.connected = false;
+    }
+    return this.connected;
+  }
+
   async close(): Promise<void> {
+    if (this.monitorTimer) {
+      clearInterval(this.monitorTimer);
+      this.monitorTimer = null;
+    }
     if (this.socket) {
       this.socket.close();
       this.socket = null;
