@@ -91,3 +91,27 @@ test("already streaming to the configured target reports targetMatches true", as
     assert.equal(res.targetMatches, true);
   } finally { await cam.close(); cgi.server.close(); }
 });
+
+test("an empty status answer fails the start instead of reporting success", async () => {
+  const server = http.createServer((_req, res) => res.end(""));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const cam = adapter((server.address() as { port: number }).port);
+  try {
+    await assert.rejects(cam.startStream({ restart: true }), /without a recognised status/);
+    assert.equal(cam.getSnapshot().streaming, false);
+  } finally { await cam.close(); server.close(); }
+});
+
+test("a start that never reaches streaming fails", async () => {
+  process.env["PICAM_RTMP_VERIFY_MS"] = "1500";
+  const server = http.createServer((req, res) => {
+    const cmd = decodeURIComponent(new URL(req.url ?? "", "http://x").search.replace(/^\?cmd=/, ""));
+    res.end(cmd.startsWith("get_rtmp_status") ? "rtmp_status:0;" : "");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const cam = adapter((server.address() as { port: number }).port);
+  try {
+    await assert.rejects(cam.startStream(), /did not report streaming/);
+    assert.equal(cam.getSnapshot().streaming, false);
+  } finally { await cam.close(); server.close(); delete process.env["PICAM_RTMP_VERIFY_MS"]; }
+});
