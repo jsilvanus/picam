@@ -82,6 +82,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_MEDIAMTX_API_URL` | `http://127.0.0.1:9997` when the RTSP base is set | MediaMTX control API; at startup picam marks cameras whose path is already live as streaming (and switches FreeD on) |
 | `PICAM_FREED_TARGET` | | `host:port` the cameras send FreeD to while a stream runs (e.g. `192.168.1.78:40000`). FreeD is switched on at stream start and off at stream stop and shutdown; unset = never switched automatically |
 | `PICAM_ALLOW_SETTINGS_WRITE` | _(off)_ | `1` allows `PUT /cameras/:id/settings/stream` (resolution, fps, bitrate). Reads (`GET .../settings`) are always allowed. Untested on real cameras |
+| `PICAM_FREED_UDP_PORT` | _(unset = no receiver)_ | UDP port picam listens on for the cameras' FreeD D1 telemetry (e.g. `40000`, the port `PICAM_FREED_TARGET` points to). Feeds the settling tracker and the camera context. Only one process can own the port: stop pigateway's FreeD receiver first; picam retries binding every 15 s. `GET /api/v1/freed/stats` shows counters |
+| `PICAM_FREED_UDP_HOST` / `PICAM_FREED_ALLOWED_HOSTS` | `0.0.0.0` / any | Bind address and accepted camera source IPs (comma list) |
 | `PICAM_CONTEXT_STALE_MS` | `3000` | Camera context is `stale` when no FreeD telemetry arrived within this time |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |

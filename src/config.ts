@@ -9,6 +9,11 @@ export interface AppConfig {
   blurReapplyMs: number;
   /** Where cameras send FreeD while a stream runs (PICAM_FREED_TARGET=host:port). Unset = FreeD is not switched automatically. */
   freedTarget?: { addr: string; port: number } | undefined;
+  /** UDP port to receive the cameras' FreeD telemetry on (PICAM_FREED_UDP_PORT). Unset = no receiver; telemetry can still be posted to /telemetry. */
+  freedUdpPort?: number | undefined;
+  freedUdpHost: string;
+  /** Source IPs accepted for FreeD datagrams (PICAM_FREED_ALLOWED_HOSTS, comma list). Empty = any. */
+  freedAllowedHosts: string[];
   cam1Name: string;
   cam1Host: string;
   cam1ViscaPort: number;
@@ -52,6 +57,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     presetsFilePath,
     thumbnailsDir,
 
+    freedUdpPort: parseUdpPort(env["PICAM_FREED_UDP_PORT"]),
+    freedUdpHost: env["PICAM_FREED_UDP_HOST"]?.trim() || "0.0.0.0",
+    freedAllowedHosts: (env["PICAM_FREED_ALLOWED_HOSTS"] ?? "").split(",").map((x) => x.trim()).filter(Boolean),
     cam1Name: env["PICAM_CAM1_NAME"] ?? "Camera 1",
     cam1Host: env["PICAM_CAM1_HOST"] ?? "",
     cam1ViscaPort: Number.parseInt(env["PICAM_CAM1_VISCA_PORT"] ?? "52381", 10) || 52381,
@@ -77,4 +85,9 @@ function parseFreedTarget(value: string | undefined): { addr: string; port: numb
   if (!match) return undefined;
   const port = Number.parseInt(match[2]!, 10);
   return port > 0 && port < 65536 ? { addr: match[1]!, port } : undefined;
+}
+
+function parseUdpPort(value: string | undefined): number | undefined {
+  const n = Number.parseInt(value?.trim() ?? "", 10);
+  return Number.isInteger(n) && n >= 0 && n < 65536 ? n : undefined;
 }
