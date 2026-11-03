@@ -27,6 +27,10 @@ COMMANDS:
   power <camId> [on|off]        Show power state, or wake/standby the camera (verified by inquiry)
   focus <camId> <auto|manual>   Set focus mode
   privacy <camId> <on|off>      Toggle privacy blur
+  context <camId>               Show preset, settled/moving, position, privacy blur and stale flag
+  settings <camId>              Show stream settings, exposure and white balance
+  settings <camId> set [--vres 1280x720] [--fps N] [--bitrate bps]
+                                Change stream settings (server needs PICAM_ALLOW_SETTINGS_WRITE=1)
   freed <camId>                 Get FreeD tracking output configuration
   stream <camId> <start|stop>   Start/stop RTMP streaming (start --restart re-applies the target of a camera that already streams; interrupts the stream)
 
@@ -179,6 +183,35 @@ async function run(): Promise<void> {
         const enabled = state === "on" || state === "true";
         const res = await client.setPrivacyBlur(camId, enabled);
         console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} privacy blur: ${enabled ? "enabled" : "disabled"}`);
+        break;
+      }
+
+      case "context": {
+        const [camId] = subArgs;
+        if (!camId) throw new Error("Usage: picam context <camId>");
+        console.log(JSON.stringify(await client.getContext(camId), null, 2));
+        break;
+      }
+
+      case "settings": {
+        const [camId, action] = subArgs;
+        if (!camId) throw new Error("Usage: picam settings <camId> [set --vres W x H --fps N --bitrate bps]");
+        if (action === "set") {
+          const flag = (name: string) => {
+            const i = args.indexOf(`--${name}`);
+            return i >= 0 ? args[i + 1] : undefined;
+          };
+          const patch: Record<string, string | number> = {};
+          const vres = flag("vres");
+          const fps = flag("fps");
+          const bitrate = flag("bitrate");
+          if (vres) patch["vres"] = vres;
+          if (fps) patch["fps"] = Number(fps);
+          if (bitrate) patch["bitrate"] = Number(bitrate);
+          console.log(JSON.stringify(await client.setStreamSettings(camId, patch), null, 2));
+        } else {
+          console.log(JSON.stringify(await client.getSettings(camId), null, 2));
+        }
         break;
       }
 

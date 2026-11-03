@@ -1,3 +1,5 @@
+import type { CameraContext } from "./camera-context.js";
+import type { ImageSettings, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
 import type {
   CameraSnapshot,
   FreedState,
@@ -178,6 +180,18 @@ export class PiCamClient {
       method: "POST",
       body: JSON.stringify({ enabled })
     });
+  }
+
+  async getContext(cameraId: string): Promise<CameraContext> {
+    return this.request(`/api/v1/cameras/${cameraId}/context`);
+  }
+
+  async getSettings(cameraId: string): Promise<{ cameraId: string; stream: StreamSettings; image: ImageSettings; writeAllowed: boolean }> {
+    return this.request(`/api/v1/cameras/${cameraId}/settings`);
+  }
+
+  async setStreamSettings(cameraId: string, patch: StreamSettingsPatch): Promise<{ cameraId: string; stream: StreamSettings; note: string }> {
+    return this.request(`/api/v1/cameras/${cameraId}/settings/stream`, { method: "PUT", body: JSON.stringify(patch) });
   }
 
   async setFocusMode(
