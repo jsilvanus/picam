@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 
+import type { CameraHealth } from "./camera-health.js";
 import type { CameraContext } from "./camera-context.js";
 
 export interface CameraEventPayload {
@@ -27,6 +28,7 @@ export interface CameraEventPayload {
 
 export type CameraEvent =
   | { type: "camera"; data: CameraEventPayload }
+  | { type: "health"; data: CameraHealth }
   | { type: "context"; data: CameraContext }
   | { type: "ready"; data: { status: string; time: string } };
 

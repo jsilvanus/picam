@@ -1,4 +1,6 @@
 import dgram from "node:dgram";
+import net from "node:net";
+import type { ProbeResult } from "./camera-health.js";
 import type { FastifyBaseLogger } from "fastify";
 import {
   buildFocusMode,
@@ -114,8 +116,8 @@ export function parseRtmpStatus(body: string): { state: RtmpState; code: number 
   return { state, code, ...(server ? { server } : {}), ...(key ? { key } : {}) };
 }
 
-import type { ImageSettings, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
-import { parseImageSettings, parseStreamSettings } from "./camera-settings.js";
+import type { ImageSettings, ImageSettingsPatch, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
+import { IMAGE_COMMANDS, parseImageSettings, parseStreamSettings } from "./camera-settings.js";
 
 export interface CameraAdapter {
   readonly id: string;
@@ -157,8 +159,12 @@ export interface CameraAdapter {
   getStreamSettings(): Promise<StreamSettings>;
   /** Writes the given stream settings, reads them back and returns what the camera now reports. */
   setStreamSettings(patch: StreamSettingsPatch): Promise<StreamSettings>;
-  /** Reads exposure and white balance (get_img_cfg). Read-only for now. */
+  /** Reads exposure and white balance (get_img_cfg). */
   getImageSettings(): Promise<ImageSettings>;
+  /** Writes exposure / white balance values and returns what the camera now reports. */
+  setImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings>;
+  /** One liveness round: VISCA power inquiry, HTTP and RTSP answers. Simulated cameras are always alive. */
+  probe(): Promise<ProbeResult>;
   /** Re-reads connection and position from the camera (real cameras only). */
   refresh?(): Promise<void>;
   close(): Promise<void>;
@@ -203,8 +209,20 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     return { ...this.streamSettings };
   }
 
+  async probe(): Promise<ProbeResult> {
+    return { visca: true, http: true, rtsp: true };
+  }
+
+  private imageSettings: ImageSettings = { expmode: 0, expval: 5, shutter: 9, iris: 10, gain: 9, awb: 0, colortemp: 3250, rgain: 125, bgain: 159 };
+
   async getImageSettings(): Promise<ImageSettings> {
-    return { expmode: 0, awb: 0, colortemp: null, rgain: null, bgain: null };
+    return { ...this.imageSettings };
+  }
+
+  async setImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings> {
+    const { wb, ...rest } = patch;
+    this.imageSettings = { ...this.imageSettings, ...rest, ...(wb !== undefined ? { awb: wb } : {}) };
+    return { ...this.imageSettings };
   }
 
   constructor(id: string, label: string) {
@@ -477,6 +495,8 @@ export interface UdpViscaCameraConfig {
   powerCgiOff?: string | undefined;
   /** Send a VISCA power inquiry this often (ms) to keep the connection state true to the camera. 0 = off. */
   monitorIntervalMs?: number | undefined;
+  /** TCP port of the camera's RTSP server for the liveness probe (default 554). */
+  rtspPort?: number | undefined;
   /** How long the near drive runs before the stop, default 2500 ms. */
   focusDriveMs?: number | undefined;
   /** Near focus limit in metres restored when privacy blur goes off, default 1.5. */
@@ -531,6 +551,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly host: string;
   private readonly viscaPort: number;
   private readonly cgiPort: number;
+  private readonly rtspPort: number;
   private readonly powerCgiOn: string | undefined;
   private readonly powerCgiOff: string | undefined;
   private readonly authHeader: string | null;
@@ -568,6 +589,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.host = config.host;
     this.viscaPort = config.viscaPort ?? 52381;
     this.cgiPort = config.cgiPort ?? 80;
+    this.rtspPort = config.rtspPort ?? 554;
     this.powerCgiOn = config.powerCgiOn;
     this.powerCgiOff = config.powerCgiOff;
     this.authHeader = config.auth
@@ -962,6 +984,36 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     return body;
   }
 
+  /**
+   * One liveness round, all three probes in parallel and read-only: VISCA power inquiry (control plane),
+   * any HTTP answer from the web server (a 401 counts: the server is alive), and an RTSP OPTIONS answer on
+   * TCP 554 (stream server).
+   */
+  async probe(): Promise<ProbeResult> {
+    const timeout = 2000;
+    const viscaP = this.getPowerState().then((s) => s !== "unreachable", () => false);
+    const httpP = fetch(`http://${this.host}:${this.cgiPort}/`, { method: "GET", signal: AbortSignal.timeout(timeout) }).then(
+      (r) => {
+        void r.body?.cancel();
+        return true;
+      },
+      () => false
+    );
+    const rtspP = new Promise<boolean>((resolve) => {
+      const socket = net.connect({ host: this.host, port: this.rtspPort });
+      const done = (ok: boolean) => {
+        socket.destroy();
+        resolve(ok);
+      };
+      socket.setTimeout(timeout, () => done(false));
+      socket.on("error", () => done(false));
+      socket.on("connect", () => socket.write(`OPTIONS rtsp://${this.host}/ RTSP/1.0\r\nCSeq: 1\r\n\r\n`));
+      socket.on("data", (d) => done(d.toString("latin1").startsWith("RTSP/1.0")));
+    });
+    const [visca, http, rtsp] = await Promise.all([viscaP, httpP, rtspP]);
+    return { visca, http, rtsp };
+  }
+
   async getStreamSettings(): Promise<StreamSettings> {
     const body = await this.cgiCommand(`get_av_cfg(${Date.now()})`, "GET", "/storks/");
     const settings = parseStreamSettings(body);
@@ -977,6 +1029,16 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     if (patch.fps !== undefined) await this.cgiCommand(`set_fps:${patch.fps}`, "POST", "/storks/");
     if (patch.bitrate !== undefined) await this.cgiCommand(`set_bitrate:${patch.bitrate}`, "POST", "/storks/");
     return this.getStreamSettings();
+  }
+
+  /** Sends one set_* per given value, in a fixed order (mode first), then reads the settings back. */
+  async setImageSettings(patch: ImageSettingsPatch): Promise<ImageSettings> {
+    const order = ["expmode", "wb", "expval", "shutter", "iris", "gain", "colortemp", "rgain", "bgain"] as const;
+    for (const key of order) {
+      const value = patch[key];
+      if (value !== undefined) await this.cgiCommand(`${IMAGE_COMMANDS[key]}:${value}`, "POST", "/storks/");
+    }
+    return this.getImageSettings();
   }
 
   async getImageSettings(): Promise<ImageSettings> {

@@ -51,6 +51,8 @@ export function buildApp(config: AppConfig): BuildAppResult {
   app.addHook("onReady", async () => {
     await cameraService.init();
     await cameraService.syncStreams();
+    // Only real cameras are probed (simulated ones are always alive). 0 turns it off.
+    if (config.mode === "production") cameraService.startHealthMonitor(config.healthIntervalMs);
   });
 
   const freedReceiver =

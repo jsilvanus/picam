@@ -129,4 +129,14 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 
 ## Camera settings
 
-`GET /api/v1/cameras/:id/settings` returns `stream` (`get_av_cfg`: `vres`, `fps`, `bitrate`, `ratectrl`, `vcodec`) and `image` (`get_img_cfg`: `expmode` 0 auto / 1 shutter / 2 iris / 3 manual, `awb`, `colortemp`, `rgain`, `bgain`). `PUT .../settings/stream` with `{vres?, fps?, bitrate?}` (limits from the camera UI: 640x360-1920x1080, 1-60 fps, 512 kbps-32 Mbps) sends `set_vres`, `set_fps`, `set_bitrate` for the given fields only and returns the values read back. Needs `PICAM_ALLOW_SETTINGS_WRITE=1`. A running RTMP stream may need `stream start --restart`. Exposure and white balance are read-only until their `set_*` syntax is confirmed; the CGI calls are from the camera's web UI and have not been run against a real camera. CLI: `picam settings cam1`, `picam settings cam1 set --fps 15`.
+`GET /api/v1/cameras/:id/settings` returns `stream` (`get_av_cfg`: `vres`, `fps`, `bitrate`, `ratectrl`, `vcodec`) and `image` (`get_img_cfg`: `expmode` 0 auto / 1 shutter / 2 iris / 3 manual, `expval`, `shutter`, `iris`, `gain`, `awb`, `colortemp`, `rgain`, `bgain`).
+
+Writes need `PICAM_ALLOW_SETTINGS_WRITE=1` and send only the given values, then return the values read back:
+- `PUT .../settings/stream` `{vres?, fps?, bitrate?}`: `vres` one of 640x360, 640x480, 960x540, 1280x720, 1920x1080; `fps` one of 1, 5, 10, 15, 20, 30, 60; `bitrate` 512000-32000000 (`set_vres`, `set_fps`, `set_bitrate`). A running RTMP stream may need `stream start --restart`.
+- `PUT .../settings/image` `{expmode?, expval?, shutter?, iris?, gain?, wb?, colortemp?, rgain?, bgain?}` (`set_expmode`, `set_expval`, `set_shutter`, `set_iris`, `set_gain`, `set_wb` 0 auto / 2 indoor / 3 outdoor / 4 one push / 6 manual, `set_colortemp`, `set_img_wb_r_gain`, `set_img_wb_b_gain`).
+
+The CGI calls come from the camera's web UI and have not been run against a real camera. Reboot, factory default, network and login settings are deliberately not exposed. CLI: `picam settings cam1`, `picam settings cam1 set --fps 15`.
+
+## Camera health
+
+In production mode picam probes each camera every `PICAM_HEALTH_INTERVAL_MS` (default 15000, 0 = off), read-only: VISCA power inquiry, an HTTP answer from the web server, and an RTSP `OPTIONS` answer on TCP 554. `GET /api/v1/cameras/:id/health` and the SSE event `health` give `state` (`ok`, `degraded` after one probe fails 3 rounds in a row, `frozen` after two or more probes fail for 30 s; 3 good rounds restore `ok`), the latest probes, which ones fail, and the last 50 transitions. The cameras have no log export on firmware V90, so this external view is the evidence for freezes. picam does not power-cycle cameras yet.

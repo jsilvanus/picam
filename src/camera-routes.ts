@@ -1,4 +1,4 @@
-import { validateStreamPatch } from "./camera-settings.js";
+import { validateImagePatch, validateStreamPatch } from "./camera-settings.js";
 import { isIPv4 } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { CameraCgiError } from "./camera-adapter.js";
@@ -454,6 +454,46 @@ export function registerCameraRoutes(
       }
     }
   );
+
+  app.put<{ Params: { cameraId: string }; Body: Record<string, unknown> }>(
+    "/api/v1/cameras/:cameraId/settings/image",
+    async (request, reply) => {
+      const id = request.params.cameraId;
+      if (!cameraService.get(id)) {
+        return reply.code(404).send({ error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${id}` } });
+      }
+      if (process.env["PICAM_ALLOW_SETTINGS_WRITE"] !== "1") {
+        return reply.code(403).send({
+          error: { code: "SETTINGS_WRITE_DISABLED", message: "Camera settings writes are off; set PICAM_ALLOW_SETTINGS_WRITE=1" }
+        });
+      }
+      const checked = validateImagePatch((request.body ?? {}) as Record<string, unknown>);
+      if (!checked.ok) {
+        return reply.code(422).send({ error: { code: "INVALID_IMAGE_SETTINGS", message: checked.message } });
+      }
+      try {
+        const image = await cameraService.setImageSettings(id, checked.patch);
+        return { cameraId: id, image };
+      } catch (err) {
+        return settingsError(reply, err);
+      }
+    }
+  );
+
+  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/health", async (request, reply) => {
+    if (!cameraService.get(request.params.cameraId)) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+    return (
+      cameraService.getHealth(request.params.cameraId) ?? {
+        cameraId: request.params.cameraId,
+        state: "unknown",
+        message: "Health monitor is off (PICAM_HEALTH_INTERVAL_MS=0) or has not run yet"
+      }
+    );
+  });
 
   app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/context", async (request, reply) => {
     const context = cameraService.getContext(request.params.cameraId);

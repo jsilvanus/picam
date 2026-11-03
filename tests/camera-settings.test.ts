@@ -13,12 +13,12 @@ test("parses both key=value and key:value styles", () => {
 });
 
 test("validates stream patches against the camera's limits", () => {
-  assert.equal(validateStreamPatch({ fps: 61 }).ok, false);
-  assert.equal(validateStreamPatch({ vres: "320x240" }).ok, false);
+  assert.equal(validateStreamPatch({ fps: 7 }).ok, false);
+  assert.equal(validateStreamPatch({ vres: "800x600" }).ok, false);
   assert.equal(validateStreamPatch({ bitrate: 100 }).ok, false);
   assert.equal(validateStreamPatch({ foo: 1 }).ok, false);
   assert.equal(validateStreamPatch({}).ok, false);
-  assert.deepEqual(validateStreamPatch({ vres: "1280x720", fps: 25 }), { ok: true, patch: { vres: "1280x720", fps: 25 } });
+  assert.deepEqual(validateStreamPatch({ vres: "1280x720", fps: 30 }), { ok: true, patch: { vres: "1280x720", fps: 30 } });
 });
 
 test("settings API: reads work, writes need the flag (simulation)", async () => {
@@ -31,7 +31,7 @@ test("settings API: reads work, writes need the flag (simulation)", async () => 
     const denied = await app.inject({ method: "PUT", url: "/api/v1/cameras/cam1/settings/stream", payload: { fps: 15 } });
     assert.equal(denied.statusCode, 403);
     process.env["PICAM_ALLOW_SETTINGS_WRITE"] = "1";
-    const bad = await app.inject({ method: "PUT", url: "/api/v1/cameras/cam1/settings/stream", payload: { fps: 99 } });
+    const bad = await app.inject({ method: "PUT", url: "/api/v1/cameras/cam1/settings/stream", payload: { fps: 7 } });
     assert.equal(bad.statusCode, 422);
     const ok = await app.inject({ method: "PUT", url: "/api/v1/cameras/cam1/settings/stream", payload: { fps: 15 } });
     assert.equal(ok.json().stream.fps, 15);
@@ -57,11 +57,28 @@ test("real adapter sends set_* only for changed values and reads back (fake came
   const port = (server.address() as { port: number }).port;
   const cam = new UdpViscaCameraAdapter({ id: "camx", label: "x", host: "127.0.0.1", cgiPort: port, viscaPort: 9, monitorIntervalMs: 0 } as never);
   try {
-    const after = await cam.setStreamSettings({ fps: 25 });
-    assert.equal(after.fps, 25);
-    assert.deepEqual(seen, ["POST set_fps:25", "GET get_av_cfg()"]);
+    const after = await cam.setStreamSettings({ fps: 30 });
+    assert.equal(after.fps, 30);
+    assert.deepEqual(seen, ["POST set_fps:30", "GET get_av_cfg()"]);
   } finally {
     await cam.close();
     server.close();
+  }
+});
+
+test("image patches are validated and applied (simulation)", async () => {
+  const { validateImagePatch } = await import("../src/camera-settings.js");
+  assert.equal(validateImagePatch({ expmode: 4 }).ok, false);
+  assert.equal(validateImagePatch({ wb: 5 }).ok, false);
+  assert.equal(validateImagePatch({ nope: 1 }).ok, false);
+  const { app } = buildApp(loadConfig({ PICAM_MODE: "simulation" } as NodeJS.ProcessEnv));
+  try {
+    process.env["PICAM_ALLOW_SETTINGS_WRITE"] = "1";
+    const r = await app.inject({ method: "PUT", url: "/api/v1/cameras/cam2/settings/image", payload: { expmode: 3, shutter: 7, wb: 6 } });
+    assert.equal(r.statusCode, 200);
+    assert.deepEqual([r.json().image.expmode, r.json().image.shutter, r.json().image.awb], [3, 7, 6]);
+  } finally {
+    delete process.env["PICAM_ALLOW_SETTINGS_WRITE"];
+    await app.close();
   }
 });

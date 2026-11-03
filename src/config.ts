@@ -14,6 +14,8 @@ export interface AppConfig {
   freedUdpHost: string;
   /** Source IPs accepted for FreeD datagrams (PICAM_FREED_ALLOWED_HOSTS, comma list). Empty = any. */
   freedAllowedHosts: string[];
+  /** Liveness probe interval in ms (PICAM_HEALTH_INTERVAL_MS, default 15000, 0 = off); production only. */
+  healthIntervalMs: number;
   cam1Name: string;
   cam1Host: string;
   cam1ViscaPort: number;
@@ -60,6 +62,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     freedUdpPort: parseUdpPort(env["PICAM_FREED_UDP_PORT"]),
     freedUdpHost: env["PICAM_FREED_UDP_HOST"]?.trim() || "0.0.0.0",
     freedAllowedHosts: (env["PICAM_FREED_ALLOWED_HOSTS"] ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+    healthIntervalMs: Math.max(0, Number.parseInt(env["PICAM_HEALTH_INTERVAL_MS"] ?? "15000", 10) || 0),
     cam1Name: env["PICAM_CAM1_NAME"] ?? "Camera 1",
     cam1Host: env["PICAM_CAM1_HOST"] ?? "",
     cam1ViscaPort: Number.parseInt(env["PICAM_CAM1_VISCA_PORT"] ?? "52381", 10) || 52381,

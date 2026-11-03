@@ -12,8 +12,9 @@ import {
   UdpViscaCameraAdapter
 } from "./camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
-import type { ImageSettings, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
+import type { ImageSettings, ImageSettingsPatch, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
 import { PresetStore } from "./preset-store.js";
+import { HealthTracker, type CameraHealth } from "./camera-health.js";
 import { CameraContextTracker, type CameraContext } from "./camera-context.js";
 import {
   CameraSettlingTracker,
@@ -69,6 +70,8 @@ export class CameraService {
   private readonly presetStore: PresetStore;
   private readonly settlingTracker: CameraSettlingTracker;
   private readonly context = new CameraContextTracker(Number.parseInt(process.env["PICAM_CONTEXT_STALE_MS"] ?? "3000", 10) || 3000);
+  private readonly health = new Map<string, HealthTracker>();
+  private healthTimer: NodeJS.Timeout | undefined;
   private readonly contextSig = new Map<string, string>();
   private readonly pigatewayUrl: string;
   private readonly fetchFn: typeof fetch;
@@ -378,6 +381,38 @@ export class CameraService {
     return snapshot;
   }
 
+  /** Starts the liveness probes of all cameras (read-only). intervalMs 0 = off. */
+  startHealthMonitor(intervalMs: number): void {
+    if (intervalMs <= 0 || this.healthTimer) return;
+    for (const id of this.cameras.keys()) this.health.set(id, new HealthTracker(id));
+    const round = async (): Promise<void> => {
+      await Promise.all(
+        [...this.cameras].map(async ([id, cam]) => {
+          const tracker = this.health.get(id)!;
+          let changed: CameraHealth | null;
+          try {
+            changed = tracker.record(await cam.probe());
+          } catch (err) {
+            this.logger?.warn({ err, camera: id }, "Health probe round failed");
+            return;
+          }
+          if (changed) {
+            this.logger?.warn({ camera: id, state: changed.state, failing: changed.failing }, "Camera health changed");
+            this.eventBroker?.emit({ type: "health", data: changed });
+          }
+        })
+      );
+    };
+    this.healthTimer = setInterval(() => void round(), intervalMs);
+    this.healthTimer.unref();
+    void round();
+  }
+
+  getHealth(id: string): CameraHealth | null {
+    if (!this.cameras.has(id)) return null;
+    return this.health.get(id)?.get() ?? null;
+  }
+
   /** Motion state of a camera for consumers (preset, settled/moving, position, stale). */
   getContext(id: string): CameraContext | null {
     const snap = this.cameras.get(id)?.getSnapshot();
@@ -620,6 +655,12 @@ export class CameraService {
     return this.requireCamera(id).getImageSettings();
   }
 
+  async setImageSettings(id: string, patch: ImageSettingsPatch): Promise<ImageSettings> {
+    const settings = await this.requireCamera(id).setImageSettings(patch);
+    this.eventBroker?.emit({ type: "camera", data: { id, action: "settings:image" } });
+    return settings;
+  }
+
   private requireCamera(id: string): CameraAdapter {
     const cam = this.cameras.get(id);
     if (!cam) throw new Error(`Camera '${id}' not found`);
@@ -689,6 +730,7 @@ export class CameraService {
   }
 
   async close(): Promise<void> {
+    if (this.healthTimer) clearInterval(this.healthTimer);
     for (const t of this.blurTimers.values()) clearTimeout(t);
     this.blurTimers.clear();
     for (const id of [...this.freedAuto]) {
