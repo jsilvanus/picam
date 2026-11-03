@@ -114,6 +114,9 @@ export function parseRtmpStatus(body: string): { state: RtmpState; code: number 
   return { state, code, ...(server ? { server } : {}), ...(key ? { key } : {}) };
 }
 
+import type { ImageSettings, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
+import { parseImageSettings, parseStreamSettings } from "./camera-settings.js";
+
 export interface CameraAdapter {
   readonly id: string;
   readonly label: string;
@@ -150,6 +153,12 @@ export interface CameraAdapter {
   markStreaming?(streaming: boolean): void;
   startStream(options?: { restart?: boolean }): Promise<StartStreamResult>;
   stopStream(): Promise<void>;
+  /** Reads the stream encoding settings (get_av_cfg). */
+  getStreamSettings(): Promise<StreamSettings>;
+  /** Writes the given stream settings, reads them back and returns what the camera now reports. */
+  setStreamSettings(patch: StreamSettingsPatch): Promise<StreamSettings>;
+  /** Reads exposure and white balance (get_img_cfg). Read-only for now. */
+  getImageSettings(): Promise<ImageSettings>;
   /** Re-reads connection and position from the camera (real cameras only). */
   refresh?(): Promise<void>;
   close(): Promise<void>;
@@ -183,6 +192,20 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   ]);
 
   private freed: FreedState = { enabled: false, camId: null, addr: null, port: null };
+  private streamSettings: StreamSettings = { vres: "640x480", fps: 5, bitrate: 1_000_000, ratectrl: 0, vcodec: "h264" };
+
+  async getStreamSettings(): Promise<StreamSettings> {
+    return { ...this.streamSettings };
+  }
+
+  async setStreamSettings(patch: StreamSettingsPatch): Promise<StreamSettings> {
+    this.streamSettings = { ...this.streamSettings, ...patch };
+    return { ...this.streamSettings };
+  }
+
+  async getImageSettings(): Promise<ImageSettings> {
+    return { expmode: 0, awb: 0, colortemp: null, rgain: null, bgain: null };
+  }
 
   constructor(id: string, label: string) {
     this.id = id;
@@ -937,6 +960,27 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       throw new CameraCgiError(`Camera ${this.id} answered HTTP ${res.status} to the CGI request`, "rejected", res.status);
     }
     return body;
+  }
+
+  async getStreamSettings(): Promise<StreamSettings> {
+    const body = await this.cgiCommand(`get_av_cfg(${Date.now()})`, "GET", "/storks/");
+    const settings = parseStreamSettings(body);
+    if (settings.vres === null && settings.fps === null && settings.bitrate === null) {
+      throw new CameraCgiError(`Camera ${this.id} answered without stream settings`, "rejected");
+    }
+    return settings;
+  }
+
+  /** Sends only the changed values (set_vres / set_fps / set_bitrate), then reads the settings back. */
+  async setStreamSettings(patch: StreamSettingsPatch): Promise<StreamSettings> {
+    if (patch.vres !== undefined) await this.cgiCommand(`set_vres:${patch.vres}`, "POST", "/storks/");
+    if (patch.fps !== undefined) await this.cgiCommand(`set_fps:${patch.fps}`, "POST", "/storks/");
+    if (patch.bitrate !== undefined) await this.cgiCommand(`set_bitrate:${patch.bitrate}`, "POST", "/storks/");
+    return this.getStreamSettings();
+  }
+
+  async getImageSettings(): Promise<ImageSettings> {
+    return parseImageSettings(await this.cgiCommand(`get_img_cfg(${Date.now()})`, "GET", "/storks/"));
   }
 
   /** FreeD output state, read with get_net_cfg. Throws CameraCgiError when the camera cannot answer. */

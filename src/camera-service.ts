@@ -12,6 +12,7 @@ import {
   UdpViscaCameraAdapter
 } from "./camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
+import type { ImageSettings, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
 import { PresetStore } from "./preset-store.js";
 import { CameraContextTracker, type CameraContext } from "./camera-context.js";
 import {
@@ -603,6 +604,26 @@ export class CameraService {
     });
 
     return { snapshot, streamUrl, action, targetMatches };
+  }
+
+  async getStreamSettings(id: string): Promise<StreamSettings> {
+    return this.requireCamera(id).getStreamSettings();
+  }
+
+  async setStreamSettings(id: string, patch: StreamSettingsPatch): Promise<StreamSettings> {
+    const settings = await this.requireCamera(id).setStreamSettings(patch);
+    this.eventBroker?.emit({ type: "camera", data: { id, action: "settings:stream" } });
+    return settings;
+  }
+
+  async getImageSettings(id: string): Promise<ImageSettings> {
+    return this.requireCamera(id).getImageSettings();
+  }
+
+  private requireCamera(id: string): CameraAdapter {
+    const cam = this.cameras.get(id);
+    if (!cam) throw new Error(`Camera '${id}' not found`);
+    return cam;
   }
 
   async stopStream(id: string): Promise<CameraSnapshot> {

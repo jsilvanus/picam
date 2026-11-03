@@ -81,6 +81,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_CAMERA_MONITOR_MS` | `30000` | VISCA power inquiry interval that drives the camera "connected" state (0 = off) |
 | `PICAM_MEDIAMTX_API_URL` | `http://127.0.0.1:9997` when the RTSP base is set | MediaMTX control API; at startup picam marks cameras whose path is already live as streaming (and switches FreeD on) |
 | `PICAM_FREED_TARGET` | | `host:port` the cameras send FreeD to while a stream runs (e.g. `192.168.1.78:40000`). FreeD is switched on at stream start and off at stream stop and shutdown; unset = never switched automatically |
+| `PICAM_ALLOW_SETTINGS_WRITE` | _(off)_ | `1` allows `PUT /cameras/:id/settings/stream` (resolution, fps, bitrate). Reads (`GET .../settings`) are always allowed. Untested on real cameras |
+| `PICAM_CONTEXT_STALE_MS` | `3000` | Camera context is `stale` when no FreeD telemetry arrived within this time |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |
 | `PICAM_CAM1_CGI_USER` | | Camera HTTP admin username |
@@ -122,3 +124,7 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 | `privacyBlur`, `focusMode` | The lens is deliberately defocused: the picture, analysis stream included, is unreliable (not "nothing seen") |
 | `stale` | No FreeD telemetry within `PICAM_CONTEXT_STALE_MS` (default 3000). Do not trust the state; without FreeD it is always stale |
 | `updatedAt` | ISO time of the last change |
+
+## Camera settings
+
+`GET /api/v1/cameras/:id/settings` returns `stream` (`get_av_cfg`: `vres`, `fps`, `bitrate`, `ratectrl`, `vcodec`) and `image` (`get_img_cfg`: `expmode` 0 auto / 1 shutter / 2 iris / 3 manual, `awb`, `colortemp`, `rgain`, `bgain`). `PUT .../settings/stream` with `{vres?, fps?, bitrate?}` (limits from the camera UI: 640x360-1920x1080, 1-60 fps, 512 kbps-32 Mbps) sends `set_vres`, `set_fps`, `set_bitrate` for the given fields only and returns the values read back. Needs `PICAM_ALLOW_SETTINGS_WRITE=1`. A running RTMP stream may need `stream start --restart`. Exposure and white balance are read-only until their `set_*` syntax is confirmed; the CGI calls are from the camera's web UI and have not been run against a real camera. CLI: `picam settings cam1`, `picam settings cam1 set --fps 15`.
