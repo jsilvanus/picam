@@ -108,3 +108,17 @@ This project is an integral component of the [Pi Production Ecosystem](file:///d
 ## Stream start and RTMP target changes
 
 `picam stream camX start` first reads the camera's `get_rtmp_status` (the AVer PTZ330 answers numerically, `rtmp_status:2;` = streaming; only 2 and 0 are mapped, other codes are logged as unknown). If the camera already streams, nothing is sent and the answer says `action: "already-streaming"`, plus `targetMatches` (read from `rtmp_server` in `get_net_cfg`, FW V90; `false` when it differs from the configured server, `null` when it cannot be read; the stream key is not readable). To apply a changed target (host or IP change) use `picam stream camX start --restart` (`POST .../stream/start?restart=1`): it stops the push, waits 1.5 s and starts it again, which interrupts the stream, so do it deliberately.
+
+## Camera context (for piperception and other consumers)
+
+`GET /api/v1/cameras/:id/context` and the SSE event `{"type":"context","data":{...}}` (sent only when something below changes) give one view of a camera's motion state:
+
+| Field | Meaning |
+| :--- | :--- |
+| `presetId` | Preset the camera settled on, else `null` (moving, driven by hand, or unknown) |
+| `targetPresetId` | Preset a recall is travelling to, else `null` |
+| `moving` / `settled` | `moving` while a recall is pending, pan/tilt/zoom is driven, or FreeD shows motion; `settled` is the opposite |
+| `ptz` | Last FreeD position, `null` before any telemetry |
+| `privacyBlur`, `focusMode` | The lens is deliberately defocused: the picture, analysis stream included, is unreliable (not "nothing seen") |
+| `stale` | No FreeD telemetry within `PICAM_CONTEXT_STALE_MS` (default 3000). Do not trust the state; without FreeD it is always stale |
+| `updatedAt` | ISO time of the last change |

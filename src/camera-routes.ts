@@ -412,6 +412,16 @@ export function registerCameraRoutes(
     });
   });
 
+  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/context", async (request, reply) => {
+    const context = cameraService.getContext(request.params.cameraId);
+    if (!context) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+    return context;
+  });
+
   app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/power", async (request, reply) => {
     if (!cameraService.get(request.params.cameraId)) {
       return reply.code(404).send({

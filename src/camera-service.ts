@@ -13,6 +13,7 @@ import {
 } from "./camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
 import { PresetStore } from "./preset-store.js";
+import { CameraContextTracker, type CameraContext } from "./camera-context.js";
 import {
   CameraSettlingTracker,
   type FreedTelemetry,
@@ -66,6 +67,8 @@ export class CameraService {
   private readonly logger?: FastifyBaseLogger | undefined;
   private readonly presetStore: PresetStore;
   private readonly settlingTracker: CameraSettlingTracker;
+  private readonly context = new CameraContextTracker(Number.parseInt(process.env["PICAM_CONTEXT_STALE_MS"] ?? "3000", 10) || 3000);
+  private readonly contextSig = new Map<string, string>();
   private readonly pigatewayUrl: string;
   private readonly fetchFn: typeof fetch;
   /** Cameras that should be blurred; set when blur is turned on, cleared by an explicit off or autofocus. */
@@ -184,6 +187,8 @@ export class CameraService {
     }
 
     await cam.move(direction, panSpeed, tiltSpeed);
+    this.context.driving(id, direction !== "stop");
+    this.emitContext(id);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -205,6 +210,8 @@ export class CameraService {
     }
 
     await cam.zoom(action, speed);
+    this.context.driving(id, action !== "stop");
+    this.emitContext(id);
     const snapshot = cam.getSnapshot();
 
     this.eventBroker?.emit({
@@ -227,6 +234,8 @@ export class CameraService {
 
     this.settlingTracker.setTargetPreset(id, presetId);
     await cam.recallPreset(presetId);
+    this.context.recall(id, presetId);
+    this.emitContext(id);
     const snapshot = cam.getSnapshot();
     const preset = this.presetStore.getPreset(id, presetId);
     this.scheduleBlurReapply(id);
@@ -368,6 +377,23 @@ export class CameraService {
     return snapshot;
   }
 
+  /** Motion state of a camera for consumers (preset, settled/moving, position, stale). */
+  getContext(id: string): CameraContext | null {
+    const snap = this.cameras.get(id)?.getSnapshot();
+    if (!snap) return null;
+    this.context.focus(id, snap.privacyBlur, snap.focusMode);
+    return this.context.get(id);
+  }
+
+  private emitContext(id: string): void {
+    const snap = this.cameras.get(id)?.getSnapshot();
+    if (snap) this.context.focus(id, snap.privacyBlur, snap.focusMode);
+    const sig = this.context.signature(id);
+    if (this.contextSig.get(id) === sig) return;
+    this.contextSig.set(id, sig);
+    this.eventBroker?.emit({ type: "context", data: this.context.get(id) });
+  }
+
   processFreedTelemetry(telemetry: FreedTelemetry): SettlingEvent | null {
     const cameraId =
       telemetry.camId === 101 || telemetry.camId === 1
@@ -378,6 +404,13 @@ export class CameraService {
 
     const presets = this.presetStore.getPresets(cameraId);
     const event = this.settlingTracker.ingestTelemetry(cameraId, telemetry, presets);
+    this.context.telemetry(
+      cameraId,
+      { pan: telemetry.pan, tilt: telemetry.tilt, zoom: telemetry.zoom },
+      this.settlingTracker.isCameraMoving(cameraId)
+    );
+    if (event?.action === "preset:settled" && event.presetId !== undefined) this.context.settledOn(cameraId, event.presetId);
+    this.emitContext(cameraId);
     if (event) {
       this.eventBroker?.emit({
         type: "camera",
@@ -522,6 +555,7 @@ export class CameraService {
       }
     });
 
+    this.emitContext(id);
     return snapshot;
   }
 
@@ -545,6 +579,7 @@ export class CameraService {
       }
     });
 
+    this.emitContext(id);
     return snapshot;
   }
 
