@@ -15,7 +15,7 @@ export interface FreedTelemetry {
 
 export interface SettlingEvent {
   cameraId: string;
-  action: "preset:settled" | "motion:moving";
+  action: "preset:settled" | "motion:moving" | "motion:stopped";
   presetId?: number | undefined;
   name?: string | undefined;
   position: { pan: number; tilt: number; zoom: number };
@@ -166,6 +166,12 @@ export class CameraSettlingTracker {
           coordinates: matchedPreset.coordinates
         };
       }
+
+      return {
+        cameraId,
+        action: "motion:stopped",
+        position: { pan: current.pan, tilt: current.tilt, zoom: current.zoom }
+      };
     }
 
     return null;
