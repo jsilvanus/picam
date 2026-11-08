@@ -943,15 +943,15 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     }
   }
 
-  /**
-   * Reads rtmp_status from get_rtmp_status. Returns null when the answer has no
-   * recognisable status; that is logged, not treated as a failure.
-   */
   /** The camera's own RTMP push state (get_rtmp_status); null when the answer is not recognised. */
   async getRtmpState(): Promise<RtmpState | null> {
     return this.rtmpStatus();
   }
 
+  /**
+   * Reads rtmp_status from get_rtmp_status. Returns null when the answer has no
+   * recognisable status; that is logged, not treated as a failure.
+   */
   private async rtmpStatus(): Promise<RtmpState | null> {
     const body = await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET");
     const parsed = parseRtmpStatus(body);

@@ -17,9 +17,9 @@ export interface AppConfig {
   freedAllowedHosts: string[];
   /** Liveness probe interval in ms (PICAM_HEALTH_INTERVAL_MS, default 15000, 0 = off); production only. */
   healthIntervalMs: number;
-  /** pipoe URL for hard power-cycles over PoE (PICAM_PIPOE_URL). Unset = power-cycle unavailable. */
   /** Cameras whose RTMP push is kept up (PICAM_KEEP_STREAMS=cam1,cam2). */
   keepStreams: string[];
+  /** pipoe URL for hard power-cycles over PoE (PICAM_PIPOE_URL). Unset = power-cycle unavailable. */
   pipoeUrl?: string | undefined;
   pipoeApiKey?: string | undefined;
   /** Camera id to pipoe port name/number (PICAM_POE_PORTS=cam1=7,cam2=8); default is the camera id. */

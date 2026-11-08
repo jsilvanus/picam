@@ -84,6 +84,9 @@ Set via environment variables or a `.env` file:
 | `PICAM_ALLOW_SETTINGS_WRITE` | _(off)_ | `1` allows `PUT /cameras/:id/settings/stream` (resolution, fps, bitrate). Reads (`GET .../settings`) are always allowed. Untested on real cameras |
 | `PICAM_FREED_UDP_PORT` | _(unset = no receiver)_ | UDP port picam listens on for the cameras' FreeD D1 telemetry (e.g. `40000`, the port `PICAM_FREED_TARGET` points to). Feeds the settling tracker and the camera context. Only one process can own the port: stop pigateway's FreeD receiver first; picam retries binding every 15 s. `GET /api/v1/freed/stats` shows counters |
 | `PICAM_FREED_UDP_HOST` / `PICAM_FREED_ALLOWED_HOSTS` | `0.0.0.0` / any | Bind address and accepted camera source IPs (comma list) |
+| `PICAM_PIPOE_URL` / `PICAM_PIPOE_API_KEY` | _(unset = no power-cycle)_ | pipoe service for hard power-cycles over PoE (`POST /cameras/:id/power-cycle`) |
+| `PICAM_POE_PORTS` | camera id | pipoe port per camera, e.g. `cam1=7,cam2=8`; without it picam asks pipoe for a port named like the camera (`PIPOE_PORT_NAMES`) |
+| `PICAM_KEEP_STREAMS` | _(empty)_ | Comma list (e.g. `cam1,cam2`). When such a camera is healthy but reports its RTMP push stopped (after a power-cycle, reboot or power cut), picam starts the push again. Checked when health turns ok and every 4th health round; needs the health monitor |
 | `PICAM_CONTEXT_STALE_MS` | `3000` | Camera context is `stale` when no FreeD telemetry arrived within this time |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |
@@ -140,3 +143,7 @@ The CGI calls come from the camera's web UI and have not been run against a real
 ## Camera health
 
 In production mode picam probes each camera every `PICAM_HEALTH_INTERVAL_MS` (default 15000, 0 = off), read-only: VISCA power inquiry, an HTTP answer from the web server, and an RTSP `OPTIONS` answer on TCP 554. `GET /api/v1/cameras/:id/health` and the SSE event `health` give `state` (`ok`, `degraded` after one probe fails 3 rounds in a row, `frozen` after two or more probes fail for 30 s; 3 good rounds restore `ok`), the latest probes, which ones fail, and the last 50 transitions. The cameras have no log export on firmware V90, so this external view is the evidence for freezes. picam does not power-cycle cameras yet.
+
+## Power-cycle (hung camera)
+
+`POST /api/v1/cameras/:id/power-cycle` `{ offMs?, force? }` (CLI `picam power-cycle cam1 [--off-ms 8000] [--force]`) asks pipoe to switch the camera's PoE port off and on (`offMs` 1000-60000, default pipoe's). This is the fix for a camera that hangs; VISCA standby does not help then. It also cuts the camera's SDI picture to the switcher, so it is refused (409) while the health monitor reports the camera `ok`, unless `force` is set. Nothing calls it automatically. Events: `power:cycle-start`, `power:cycle-done`, `power:cycle-failed`. With `PICAM_KEEP_STREAMS` the RTMP push into MediaMTX is restarted once the camera is back; without it the push stays down until `stream start` is called.
