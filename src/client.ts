@@ -153,6 +153,13 @@ export class PiCamClient {
     });
   }
 
+  async powerCycle(
+    cameraId: string,
+    options: { offMs?: number; force?: boolean } = {}
+  ): Promise<{ success: boolean; cameraId: string; port: string; health: string; result: unknown }> {
+    return this.request(`/api/v1/cameras/${cameraId}/power-cycle`, { method: "POST", body: JSON.stringify(options) });
+  }
+
   async getPower(cameraId: string): Promise<{ cameraId: string; power: "on" | "standby" | "unreachable" }> {
     return this.request(`/api/v1/cameras/${cameraId}/power`);
   }

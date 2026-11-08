@@ -25,6 +25,9 @@ COMMANDS:
   smartframe <camId> <enable|disable|trigger>
                                 Configure AVer SmartFrame auto-framing
   power <camId> [on|off]        Show power state, or wake/standby the camera (verified by inquiry)
+  power-cycle <camId> [--off-ms N] [--force]
+                                Cut and restore PoE power through pipoe (for a hung camera; cuts the picture).
+                                Refused while health is ok unless --force
   focus <camId> <auto|manual>   Set focus mode
   privacy <camId> <on|off>      Toggle privacy blur
   context <camId>               Show preset, settled/moving, position, privacy blur and stale flag
@@ -152,6 +155,16 @@ async function run(): Promise<void> {
         if (!camId || !mode) throw new Error("Usage: picam smartframe <camId> <enable|disable|trigger>");
         const res = await client.setSmartFrame(camId, mode as SmartFrameMode);
         console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId} smartframe: ${mode}`);
+        break;
+      }
+
+      case "power-cycle": {
+        const [camId] = subArgs;
+        if (!camId) throw new Error("Usage: picam power-cycle <camId> [--off-ms N] [--force]");
+        const i = args.indexOf("--off-ms");
+        const offMs = i >= 0 ? Number(args[i + 1]) : undefined;
+        const res = await client.powerCycle(camId, { ...(offMs !== undefined ? { offMs } : {}), force: args.includes("--force") });
+        console.log(json ? JSON.stringify(res, null, 2) : `Camera ${camId}: PoE port ${res.port} power-cycled (health was ${res.health})`);
         break;
       }
 

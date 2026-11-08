@@ -151,6 +151,8 @@ export interface CameraAdapter {
   setPrivacyBlur(enabled: boolean): Promise<void>;
   /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
   setFocusMode(mode: FocusMode): Promise<void>;
+  /** The camera's own RTMP push state; null when unknown. Simulated cameras report their flag. */
+  getRtmpState(): Promise<RtmpState | null>;
   /** Marks the stream as running when something else (a restart) already started it. */
   markStreaming?(streaming: boolean): void;
   startStream(options?: { restart?: boolean }): Promise<StartStreamResult>;
@@ -211,6 +213,10 @@ export class SimulatedCameraAdapter implements CameraAdapter {
 
   async probe(): Promise<ProbeResult> {
     return { visca: true, http: true, rtsp: true };
+  }
+
+  async getRtmpState(): Promise<RtmpState | null> {
+    return this.streaming ? "streaming" : "stopped";
   }
 
   private imageSettings: ImageSettings = { expmode: 0, expval: 5, shutter: 9, iris: 10, gain: 9, awb: 0, colortemp: 3250, rgain: 125, bgain: 159 };
@@ -935,6 +941,11 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     } finally {
       this.streaming = false;
     }
+  }
+
+  /** The camera's own RTMP push state (get_rtmp_status); null when the answer is not recognised. */
+  async getRtmpState(): Promise<RtmpState | null> {
+    return this.rtmpStatus();
   }
 
   /**
