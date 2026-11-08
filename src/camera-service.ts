@@ -14,6 +14,7 @@ import {
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
 import type { ImageSettings, ImageSettingsPatch, StreamSettings, StreamSettingsPatch } from "./camera-settings.js";
 import { PresetStore } from "./preset-store.js";
+import { PipoePowerCycler, PowerCycleError } from "./power-cycler.js";
 import { HealthTracker, type CameraHealth } from "./camera-health.js";
 import { CameraContextTracker, type CameraContext } from "./camera-context.js";
 import {
@@ -55,6 +56,10 @@ export interface CameraServiceOptions {
   presetsFilePath?: string | undefined;
   thumbnailsDir?: string | undefined;
   fetchFn?: typeof fetch | undefined;
+  /** Cameras whose RTMP push picam restarts when the camera is healthy but not pushing (PICAM_KEEP_STREAMS). */
+  keepStreams?: string[] | undefined;
+  /** Hard power-cycle through pipoe; unset = not available. */
+  powerCycler?: PipoePowerCycler | undefined;
   presetStore?: PresetStore | undefined;
   settlingTrackerOptions?: SettlingTrackerOptions | undefined;
 }
@@ -75,6 +80,10 @@ export class CameraService {
   private readonly contextSig = new Map<string, string>();
   private readonly pigatewayUrl: string;
   private readonly fetchFn: typeof fetch;
+  private readonly powerCycler?: PipoePowerCycler | undefined;
+  private readonly cycling = new Set<string>();
+  private readonly keepStreams: Set<string>;
+  private healthRounds = 0;
   /** Cameras that should be blurred; set when blur is turned on, cleared by an explicit off or autofocus. */
   private readonly stickyBlur = new Set<string>();
   private readonly blurCameras: Set<string>;
@@ -90,6 +99,8 @@ export class CameraService {
     this.logger = options.logger;
     this.pigatewayUrl = (options.pigatewayUrl ?? "http://127.0.0.1:3000").replace(/\/+$/, "");
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
+    this.powerCycler = options.powerCycler;
+    this.keepStreams = new Set(options.keepStreams ?? []);
     this.presetStore =
       options.presetStore ??
       new PresetStore({
@@ -400,12 +411,71 @@ export class CameraService {
             this.logger?.warn({ camera: id, state: changed.state, failing: changed.failing }, "Camera health changed");
             this.eventBroker?.emit({ type: "health", data: changed });
           }
+          // After a power-cycle, reboot or power cut the camera comes back without its RTMP push.
+          // Check right after it turns ok, then every 4th round.
+          if (tracker.get().state === "ok" && (changed?.state === "ok" || this.healthRounds % 4 === 0)) {
+            await this.keepStream(id);
+          }
         })
       );
+      this.healthRounds++;
     };
     this.healthTimer = setInterval(() => void round(), intervalMs);
     this.healthTimer.unref();
     void round();
+  }
+
+  /**
+   * Hard power-cycle over PoE (pipoe). Manual only: nothing calls this automatically.
+   * Refused (reason "healthy") while the health monitor says the camera is ok, unless force is set,
+   * because cutting power also cuts the camera's SDI picture to the switcher.
+   */
+  async powerCycle(
+    id: string,
+    options: { offMs?: number; force?: boolean } = {}
+  ): Promise<{ cameraId: string; port: string; health: string; result: unknown }> {
+    if (!this.cameras.has(id)) throw new Error(`Camera '${id}' not found`);
+    if (!this.powerCycler) throw new PowerCycleError("Power-cycle is not configured (set PICAM_PIPOE_URL)", 503);
+    const health = this.health.get(id)?.get().state ?? "unknown";
+    if (health === "ok" && !options.force) {
+      throw new PowerCycleError(
+        `Camera ${id} looks healthy; a power-cycle cuts its picture. Add force to do it anyway`,
+        409
+      );
+    }
+    if (this.cycling.has(id)) throw new PowerCycleError(`A power-cycle of ${id} is already running`, 409);
+    this.cycling.add(id);
+    const port = this.powerCycler.portFor(id);
+    this.logger?.warn({ camera: id, port, health, force: Boolean(options.force) }, "Power-cycling camera over PoE");
+    this.eventBroker?.emit({ type: "camera", data: { id, action: "power:cycle-start" } });
+    try {
+      const result = await this.powerCycler.cycle(id, options.offMs);
+      this.eventBroker?.emit({ type: "camera", data: { id, action: "power:cycle-done" } });
+      return { cameraId: id, port, health, result };
+    } catch (err) {
+      this.eventBroker?.emit({ type: "camera", data: { id, action: "power:cycle-failed" } });
+      throw err;
+    } finally {
+      this.cycling.delete(id);
+    }
+  }
+
+  /**
+   * Restarts the RTMP push of a PICAM_KEEP_STREAMS camera when the camera says it is stopped.
+   * Read-first: does nothing when it streams or the state is unknown. Returns true when it started the push.
+   */
+  async keepStream(id: string): Promise<boolean> {
+    const cam = this.cameras.get(id);
+    if (!cam || !this.keepStreams.has(id) || this.cycling.has(id)) return false;
+    try {
+      if ((await cam.getRtmpState()) !== "stopped") return false;
+      this.logger?.warn({ camera: id }, "RTMP push is stopped; restarting it (PICAM_KEEP_STREAMS)");
+      await this.startStream(id);
+      return true;
+    } catch (err) {
+      this.logger?.warn({ err, camera: id }, "Could not restart the RTMP push");
+      return false;
+    }
   }
 
   getHealth(id: string): CameraHealth | null {

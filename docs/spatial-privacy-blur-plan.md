@@ -2,12 +2,12 @@
 
 ## 1. Executive Summary & Problem Statement
 
-Riihimäen Keskuskirkko utilizes PTZ cameras (AVer PTZ330) to broadcast services. In pastoral workflows, specific liturgical moments (such as personal prayer, confession, blessings, or communion) require immediate **privacy blur (optical defocus)** to protect individual privacy while maintaining ambient context and dignified aesthetic continuity.
+A church that broadcasts its services uses PTZ cameras (AVer PTZ330). In pastoral workflows, specific liturgical moments (such as personal prayer, confession, blessings, or communion) require immediate **privacy blur (optical defocus)** to protect individual privacy while maintaining ambient context and dignified aesthetic continuity.
 
 ### The Problem with Static Defocus Values
 Prior implementations attempted a static focus drive (e.g. driving the lens to its physical near limit `0x0000` / ~158 encoder ticks). Physical testing demonstrated this approach fails in production:
-1. **At Wide Angle (e.g. Cam 1 Alttari, zoom ~320)**: Large depth of field means minor focus adjustments do nothing, while driving to the extreme minimum focal plane (<10 cm) creates an abrupt, unnatural whiteout / total blindness ("nothing was visible").
-2. **At Telephoto (e.g. Cam 2 Puhuja, zoom ~13888)**: Narrow depth of field means a moderate shift in focal distance produces an immediate, creamy bokeh. Driving to the near limit causes severe over-blur, and the physical lens near limit actually shifts outward at high focal lengths (~4595 encoder ticks).
+1. **At Wide Angle (e.g. a wide altar preset, zoom ~320)**: Large depth of field means minor focus adjustments do nothing, while driving to the extreme minimum focal plane (<10 cm) creates an abrupt, unnatural whiteout / total blindness ("nothing was visible").
+2. **At Telephoto (e.g. a telephoto pulpit preset, zoom ~13888)**: Narrow depth of field means a moderate shift in focal distance produces an immediate, creamy bokeh. Driving to the near limit causes severe over-blur, and the physical lens near limit actually shifts outward at high focal lengths (~4595 encoder ticks).
 3. **Unpredictable Free-Roam Movement**: When cameras are operated manually (outside predefined presets), a fixed preset target cannot apply.
 
 ---
@@ -60,8 +60,7 @@ flowchart TD
 ### Tier 1: Preset-Calibrated Target (Highest Determinism)
 When the camera is recalled to or resting at a known preset:
 - Stored preset metadata defines `blurFocus`:
-  - **Preset 1 (Altar Wide)**: `blurFocus: 2500` (`0x09C4`)
-  - **Preset 2 (Pulpit Zoom)**: `blurFocus: 7000` (`0x1B58`)
+  - for example `blurFocus: 2500` on a wide preset and `blurFocus: 7000` on a telephoto preset (site values live in the venue repository).
 - Immediate recall into blur mode without recalculation.
 - When presets are recalled while privacy mode is active, `picam` automatically reapplies the preset's calibrated `blurFocus`.
 
@@ -70,8 +69,7 @@ When the camera is panned or tilted manually without a preset:
 1. `picam` queries `pispace`: `GET /api/v1/cameras/:id/privacy-focus`.
 2. `pispace` reads live FreeD telemetry `(pan, tilt, zoom)` from UDP `40000`.
 3. Optical raycasting projects from camera mount $\mathbf{C}$:
-   - **`cam1`**: Chancel pillar $(5.2, 1.5, 3.6)\text{ m}$.
-   - **`cam2`**: Rear organ balcony $(0.0, -14.5, 5.0)\text{ m}$.
+   - mount positions come from the venue model (pispace), not from picam.
 4. If `piperception` has active 2D human bounding boxes $(u, v)$, the ray is cast through the human centroid.
 5. If no human is detected, the ray is cast through the center of the optical frame and intersects:
    - Floor plane: $Z = 0.0\text{ m}$
@@ -119,7 +117,7 @@ Where $\Delta(Z)$ scales with zoom:
 ```json
 {
   "id": 2,
-  "name": "Puhuja (Pulpit)",
+  "name": "Pulpit",
   "coordinates": {
     "pan": 11,
     "tilt": 1,
@@ -135,14 +133,9 @@ Where $\Delta(Z)$ scales with zoom:
 
 ---
 
-## 5. Field Calibration Reference (Riihimäen Keskuskirkko)
+## 5. Field Calibration Reference
 
-Physical on-site testing conducted on 2026-11-08 established the following baseline values:
-
-| Camera & View | Zoom | In-Focus (AF) | Soft Blur | Medium Blur (Optimal) | Strong Blur | Near Limit |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Cam 1 (Alttari Wide)** | `320` | `6295` | `3500` | **`2500`** | `1500` | `158` (Over-blur) |
-| **Cam 2 (Puhuja Telephoto)** | `13888` | `11495` | `8500` | **`7000`** | `5500` | `4595` (Optical Limit) |
+Per-site, per-preset blur values (and camera mount positions) are site data and are kept in the venue's own private repository, not here. picam reads them from its preset store (`privacy.blurFocus`). Calibrate each preset on site: note the in-focus AF value and pick the soft / medium / strong blur encoder values by eye. Later the values are meant to come from the 3D venue model (pispace) instead.
 
 ### Visual Criteria:
 - **Soft Blur**: Subject features identifiable, fine detail softened.

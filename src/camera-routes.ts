@@ -2,6 +2,7 @@ import { validateImagePatch, validateStreamPatch } from "./camera-settings.js";
 import { isIPv4 } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { CameraCgiError } from "./camera-adapter.js";
+import { PowerCycleError } from "./power-cycler.js";
 import type { CameraService } from "./camera-service.js";
 import type { CameraEventBroker } from "./events.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
@@ -504,6 +505,35 @@ export function registerCameraRoutes(
     }
     return context;
   });
+
+  app.post<{ Params: { cameraId: string }; Body: { offMs?: unknown; force?: unknown } | undefined }>(
+    "/api/v1/cameras/:cameraId/power-cycle",
+    async (request, reply) => {
+      const id = request.params.cameraId;
+      if (!cameraService.get(id)) {
+        return reply.code(404).send({ error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${id}` } });
+      }
+      const offMs = request.body?.offMs;
+      if (offMs !== undefined && (typeof offMs !== "number" || !Number.isInteger(offMs) || offMs < 1000 || offMs > 60000)) {
+        return reply.code(422).send({ error: { code: "INVALID_OFF_MS", message: "offMs must be an integer 1000-60000" } });
+      }
+      try {
+        const result = await cameraService.powerCycle(id, {
+          ...(offMs !== undefined ? { offMs: offMs as number } : {}),
+          force: request.body?.force === true
+        });
+        return { success: true, ...result };
+      } catch (err) {
+        if (err instanceof PowerCycleError) {
+          const code = err.status === 503 ? 503 : err.status === 409 ? 409 : 502;
+          return reply.code(code).send({
+            error: { code: code === 409 ? "POWER_CYCLE_REFUSED" : "POWER_CYCLE_FAILED", message: err.message }
+          });
+        }
+        throw err;
+      }
+    }
+  );
 
   app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/power", async (request, reply) => {
     if (!cameraService.get(request.params.cameraId)) {

@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config.js";
 import { CameraEventBroker } from "./events.js";
 import { CameraService } from "./camera-service.js";
+import { PipoePowerCycler } from "./power-cycler.js";
 import { FreedUdpReceiver } from "./freed-receiver.js";
 import { registerCameraRoutes } from "./camera-routes.js";
 
@@ -45,7 +46,11 @@ export function buildApp(config: AppConfig): BuildAppResult {
     mediaMtxApiUrl: config.mediaMtxApiUrl,
     pigatewayUrl: config.pigatewayUrl,
     presetsFilePath: config.presetsFilePath,
-    thumbnailsDir: config.thumbnailsDir
+    thumbnailsDir: config.thumbnailsDir,
+    keepStreams: config.keepStreams,
+    powerCycler: config.pipoeUrl
+      ? new PipoePowerCycler({ baseUrl: config.pipoeUrl, apiKey: config.pipoeApiKey, ports: config.poePorts })
+      : undefined
   });
 
   app.addHook("onReady", async () => {

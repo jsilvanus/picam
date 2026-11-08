@@ -1,3 +1,4 @@
+import { parsePoePorts } from "./power-cycler.js";
 export interface AppConfig {
   host: string;
   port: number;
@@ -16,6 +17,13 @@ export interface AppConfig {
   freedAllowedHosts: string[];
   /** Liveness probe interval in ms (PICAM_HEALTH_INTERVAL_MS, default 15000, 0 = off); production only. */
   healthIntervalMs: number;
+  /** pipoe URL for hard power-cycles over PoE (PICAM_PIPOE_URL). Unset = power-cycle unavailable. */
+  /** Cameras whose RTMP push is kept up (PICAM_KEEP_STREAMS=cam1,cam2). */
+  keepStreams: string[];
+  pipoeUrl?: string | undefined;
+  pipoeApiKey?: string | undefined;
+  /** Camera id to pipoe port name/number (PICAM_POE_PORTS=cam1=7,cam2=8); default is the camera id. */
+  poePorts: Record<string, string>;
   cam1Name: string;
   cam1Host: string;
   cam1ViscaPort: number;
@@ -63,6 +71,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     freedUdpHost: env["PICAM_FREED_UDP_HOST"]?.trim() || "0.0.0.0",
     freedAllowedHosts: (env["PICAM_FREED_ALLOWED_HOSTS"] ?? "").split(",").map((x) => x.trim()).filter(Boolean),
     healthIntervalMs: Math.max(0, Number.parseInt(env["PICAM_HEALTH_INTERVAL_MS"] ?? "15000", 10) || 0),
+    keepStreams: (env["PICAM_KEEP_STREAMS"] ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+    pipoeUrl: env["PICAM_PIPOE_URL"]?.trim() || undefined,
+    pipoeApiKey: env["PICAM_PIPOE_API_KEY"]?.trim() || undefined,
+    poePorts: parsePoePorts(env["PICAM_POE_PORTS"]),
     cam1Name: env["PICAM_CAM1_NAME"] ?? "Camera 1",
     cam1Host: env["PICAM_CAM1_HOST"] ?? "",
     cam1ViscaPort: Number.parseInt(env["PICAM_CAM1_VISCA_PORT"] ?? "52381", 10) || 52381,
