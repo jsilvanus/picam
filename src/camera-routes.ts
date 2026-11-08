@@ -582,10 +582,7 @@ export function registerCameraRoutes(
     }
   });
 
-  app.post<{
-    Params: { cameraId: string };
-    Body: { enabled?: unknown };
-  }>("/api/v1/cameras/:cameraId/privacy-blur", async (request, reply) => {
+  const handlePrivacyBlur = async (request: any, reply: any) => {
     const camera = cameraService.get(request.params.cameraId);
     if (!camera) {
       return reply.code(404).send({
@@ -593,7 +590,8 @@ export function registerCameraRoutes(
       });
     }
 
-    const enabled = request.body?.enabled;
+    const rawEnabled = request.body?.enabled;
+    const enabled = typeof rawEnabled === "boolean" ? rawEnabled : (rawEnabled === undefined && request.url.endsWith("/defocus") ? true : undefined);
     if (typeof enabled !== "boolean") {
       return reply.code(422).send({
         error: { code: "INVALID_PRIVACY_BLUR", message: "enabled must be true or false" }
@@ -607,7 +605,10 @@ export function registerCameraRoutes(
       success: true,
       action: `privacyblur:${enabled ? "on" : "off"}`
     });
-  });
+  };
+
+  app.post("/api/v1/cameras/:cameraId/privacy-blur", handlePrivacyBlur);
+  app.post("/api/v1/cameras/:cameraId/defocus", handlePrivacyBlur);
 
   app.post<{
     Params: { cameraId: string };
