@@ -221,3 +221,42 @@ test("API routes support saving preset with FreeD & thumbnail, retrieving thumbn
   assert.equal(settledEv.name, "Lectern");
   assert.equal(settledEv.coordinates?.pan, 12.34);
 });
+
+test("CameraSettlingTracker emits motion:settled when stopping at a non-preset location", () => {
+  const tracker = new CameraSettlingTracker({
+    panToleranceDeg: 0.3,
+    tiltToleranceDeg: 0.3,
+    zoomTolerance: 500,
+    minStationaryFrames: 3,
+    motionThresholdPanDeg: 0.05
+  });
+
+  const presets = [
+    {
+      id: 1,
+      name: "Pulpit",
+      coordinates: { pan: 50.0, tilt: 10.0, zoom: 5000 }
+    }
+  ];
+
+  // Moving towards an arbitrary location (pan: -85.0, tilt: 15.0)
+  tracker.ingestTelemetry("cam1", { camId: 101, pan: 0.0, tilt: 0.0, zoom: 1000 }, presets);
+  const evMove = tracker.ingestTelemetry("cam1", { camId: 101, pan: -40.0, tilt: 8.0, zoom: 2000 }, presets);
+  assert.ok(evMove);
+  assert.equal(evMove.action, "motion:moving");
+  assert.equal(tracker.isCameraMoving("cam1"), true);
+
+  // Arrive at non-preset position (-85.0, 15.0, 2000)
+  tracker.ingestTelemetry("cam1", { camId: 101, pan: -85.0, tilt: 15.0, zoom: 2000 }, presets);
+  // Stationary frames
+  tracker.ingestTelemetry("cam1", { camId: 101, pan: -85.0, tilt: 15.0, zoom: 2000 }, presets);
+  tracker.ingestTelemetry("cam1", { camId: 101, pan: -85.0, tilt: 15.0, zoom: 2000 }, presets);
+  const evSettled = tracker.ingestTelemetry("cam1", { camId: 101, pan: -85.0, tilt: 15.0, zoom: 2000 }, presets);
+
+  assert.ok(evSettled, "motion:settled should be emitted");
+  assert.equal(evSettled.action, "motion:settled");
+  assert.equal(evSettled.presetId, undefined);
+  assert.equal(evSettled.position.pan, -85.0);
+  assert.equal(evSettled.position.tilt, 15.0);
+  assert.equal(tracker.isCameraMoving("cam1"), false);
+});

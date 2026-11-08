@@ -15,7 +15,7 @@ export interface FreedTelemetry {
 
 export interface SettlingEvent {
   cameraId: string;
-  action: "preset:settled" | "motion:moving" | "motion:stopped";
+  action: "preset:settled" | "motion:moving" | "motion:settled" | "motion:stopped";
   presetId?: number | undefined;
   name?: string | undefined;
   position: { pan: number; tilt: number; zoom: number };
@@ -155,23 +155,26 @@ export class CameraSettlingTracker {
 
       state.activeTargetPresetId = null;
 
-      if (matchedPreset && matchedPreset.id !== state.lastSettledPresetId) {
-        state.lastSettledPresetId = matchedPreset.id;
+      if (matchedPreset) {
+        if (matchedPreset.id !== state.lastSettledPresetId) {
+          state.lastSettledPresetId = matchedPreset.id;
+          return {
+            cameraId,
+            action: "preset:settled",
+            presetId: matchedPreset.id,
+            name: matchedPreset.name,
+            position: { pan: current.pan, tilt: current.tilt, zoom: current.zoom },
+            coordinates: matchedPreset.coordinates
+          };
+        }
+      } else {
+        state.lastSettledPresetId = null;
         return {
           cameraId,
-          action: "preset:settled",
-          presetId: matchedPreset.id,
-          name: matchedPreset.name,
-          position: { pan: current.pan, tilt: current.tilt, zoom: current.zoom },
-          coordinates: matchedPreset.coordinates
+          action: "motion:settled",
+          position: { pan: current.pan, tilt: current.tilt, zoom: current.zoom }
         };
       }
-
-      return {
-        cameraId,
-        action: "motion:stopped",
-        position: { pan: current.pan, tilt: current.tilt, zoom: current.zoom }
-      };
     }
 
     return null;
