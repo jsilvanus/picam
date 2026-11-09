@@ -5,8 +5,16 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const { app, cameraService } = buildApp(config);
 
+  let stopping = false;
   const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
     app.log.info("Shutting down picam...");
+    // Last resort: never hang a service stop (camera CGI calls on the way out have their own timeouts).
+    setTimeout(() => {
+      app.log.warn("Shutdown took too long; exiting");
+      process.exit(0);
+    }, Number.parseInt(process.env["PICAM_SHUTDOWN_TIMEOUT_MS"] ?? "10000", 10) || 10000).unref();
     await cameraService.close();
     await app.close();
     process.exit(0);

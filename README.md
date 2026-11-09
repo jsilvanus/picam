@@ -87,6 +87,8 @@ Set via environment variables or a `.env` file:
 | `PICAM_PIPOE_URL` / `PICAM_PIPOE_API_KEY` | _(unset = no power-cycle)_ | pipoe service for hard power-cycles over PoE (`POST /cameras/:id/power-cycle`) |
 | `PICAM_POE_PORTS` | camera id | pipoe port per camera, e.g. `cam1=7,cam2=8`; without it picam asks pipoe for a port named like the camera (`PIPOE_PORT_NAMES`) |
 | `PICAM_KEEP_STREAMS` | _(empty)_ | Comma list (e.g. `cam1,cam2`). When such a camera is healthy but reports its RTMP push stopped (after a power-cycle, reboot or power cut), picam starts the push again. Checked when health turns ok and every 4th health round; needs the health monitor |
+| `PICAM_RECALL_STILL_MS` | `1500` | A recall to the preset the camera is already at (no motion) counts as landed after the camera is still this long; a recall with no stored coordinates ends as "unknown preset" after twice this. Any recall stops counting as moving after 20 s |
+| `PICAM_SHUTDOWN_TIMEOUT_MS` | `10000` | On SIGTERM picam exits after this even if something still hangs |
 | `PICAM_CONTEXT_STALE_MS` | `3000` | Camera context is `stale` when no FreeD telemetry arrived within this time |
 | `PICAM_CAM1_VISCA_PORT` | `52381` | VISCA UDP port (typically 52381) |
 | `PICAM_CAM1_CGI_PORT` | `80` | HTTP/CGI port |
