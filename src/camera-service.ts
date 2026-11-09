@@ -483,6 +483,32 @@ export class CameraService {
     return this.health.get(id)?.get() ?? null;
   }
 
+  /**
+   * Ends a pending recall that the settling tracker will never report: the camera was already at the preset
+   * (no motion at all), the preset has no stored coordinates, or it stopped somewhere else.
+   * Still for RECALL_STILL_MS after the recall (or after the last motion) = landed.
+   */
+  private resolveRecall(
+    cameraId: string,
+    telemetry: FreedTelemetry,
+    presets: CameraPreset[],
+    event: SettlingEvent | null
+  ): void {
+    const pending = this.context.pendingRecall(cameraId);
+    if (!pending) return;
+    const preset = presets.find((p) => p.id === pending.presetId);
+    const atPreset = preset?.coordinates ? this.settlingTracker.matchesCoordinates(telemetry, preset.coordinates) : false;
+    if (event?.action === "motion:settled" || event?.action === "motion:stopped") {
+      this.context.landed(cameraId, atPreset ? pending.presetId : null);
+      return;
+    }
+    if (this.settlingTracker.isCameraMoving(cameraId)) return;
+    const stillMs = Number.parseInt(process.env["PICAM_RECALL_STILL_MS"] ?? "1500", 10) || 1500;
+    if (pending.movedSinceRecall) return; // it moved: wait for the tracker's settle (or the timeout)
+    if (atPreset && pending.sinceMs >= stillMs) this.context.landed(cameraId, pending.presetId);
+    else if (!atPreset && pending.sinceMs >= stillMs * 2) this.context.landed(cameraId, null);
+  }
+
   /** Motion state of a camera for consumers (preset, settled/moving, position, stale). */
   getContext(id: string): CameraContext | null {
     const snap = this.cameras.get(id)?.getSnapshot();
@@ -516,6 +542,7 @@ export class CameraService {
       this.settlingTracker.isCameraMoving(cameraId)
     );
     if (event?.action === "preset:settled" && event.presetId !== undefined) this.context.settledOn(cameraId, event.presetId);
+    else this.resolveRecall(cameraId, telemetry, presets, event);
     this.emitContext(cameraId);
     if (event) {
       this.eventBroker?.emit({

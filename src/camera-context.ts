@@ -30,6 +30,9 @@ interface Entry {
   ptz: { pan: number; tilt: number; zoom: number } | null;
   updatedAt: number;
   telemetryAt: number | null;
+  recallAt: number | null;
+  /** Time of the last telemetry frame that showed motion (null = none since the recall). */
+  movedAt: number | null;
   privacyBlur: boolean;
   focusMode: "auto" | "manual";
 }
@@ -39,13 +42,15 @@ export class CameraContextTracker {
 
   constructor(
     private readonly staleMs = 3000,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    /** A recall that never reports landing stops counting as "moving" after this long (ms). */
+    private readonly recallTimeoutMs = 20_000
   ) {}
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
     if (!e) {
-      e = { presetId: null, targetPresetId: null, driving: false, fieldMoving: false, ptz: null, updatedAt: this.now(), telemetryAt: null, privacyBlur: false, focusMode: "auto" };
+      e = { presetId: null, targetPresetId: null, driving: false, fieldMoving: false, ptz: null, updatedAt: this.now(), telemetryAt: null, recallAt: null, movedAt: null, privacyBlur: false, focusMode: "auto" };
       this.entries.set(id, e);
     }
     return e;
@@ -64,6 +69,24 @@ export class CameraContextTracker {
     const e = this.entry(id);
     e.targetPresetId = presetId;
     e.presetId = null;
+    e.recallAt = e.updatedAt = this.now();
+    e.movedAt = null;
+  }
+
+  /** The recall under way, with how long ago it was sent and whether motion was seen since; null when none. */
+  pendingRecall(id: string): { presetId: number; sinceMs: number; movedSinceRecall: boolean } | null {
+    const e = this.entry(id);
+    if (e.targetPresetId === null || e.recallAt === null) return null;
+    return { presetId: e.targetPresetId, sinceMs: this.now() - e.recallAt, movedSinceRecall: e.movedAt !== null };
+  }
+
+  /** A recall ended: on the given preset, or somewhere else / unknown (null). */
+  landed(id: string, presetId: number | null): void {
+    const e = this.entry(id);
+    e.presetId = presetId;
+    e.targetPresetId = null;
+    e.recallAt = null;
+    e.movedAt = null;
     e.updatedAt = this.now();
   }
 
@@ -84,7 +107,10 @@ export class CameraContextTracker {
     e.ptz = ptz;
     e.fieldMoving = moving;
     e.telemetryAt = e.updatedAt = this.now();
-    if (moving) e.presetId = null;
+    if (moving) {
+      e.presetId = null;
+      if (e.targetPresetId !== null) e.movedAt = this.now();
+    }
   }
 
   /** The settling tracker matched a preset. */
@@ -92,12 +118,20 @@ export class CameraContextTracker {
     const e = this.entry(id);
     e.presetId = presetId;
     e.targetPresetId = null;
+    e.recallAt = null;
+    e.movedAt = null;
     e.fieldMoving = false;
     e.updatedAt = this.now();
   }
 
   get(id: string): CameraContext {
     const e = this.entry(id);
+    // A recall nobody saw land (no FreeD, unknown preset) must not leave the camera "moving" for ever.
+    if (e.targetPresetId !== null && e.recallAt !== null && this.now() - e.recallAt > this.recallTimeoutMs) {
+      e.targetPresetId = null;
+      e.recallAt = null;
+      e.movedAt = null;
+    }
     const moving = e.driving || e.fieldMoving || e.targetPresetId !== null;
     return {
       cameraId: id,

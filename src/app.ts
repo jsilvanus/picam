@@ -14,6 +14,9 @@ export interface BuildAppResult {
 
 export function buildApp(config: AppConfig): BuildAppResult {
   const app = Fastify({
+    // SSE clients (/events) keep their connection open for ever; without this app.close() waits on them
+    // and a systemd stop hangs until SIGKILL.
+    forceCloseConnections: true,
     logger: {
       level: process.env["NODE_ENV"] === "test" ? "silent" : "info"
     }
